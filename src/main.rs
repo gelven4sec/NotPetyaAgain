@@ -8,7 +8,7 @@ use core::fmt::Write;
 use uefi::prelude::*;
 use uefi::{Char16, Event, ResultExt};
 use uefi::proto::console::text::{Color, Key, Output};
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use core::alloc::Layout;
 use core::str;
 use uefi::exts::allocate_buffer;
@@ -21,6 +21,39 @@ fn init_screen(stdout: &mut Output) {
     stdout.set_color(Color::Red, Color::Black).unwrap_success();
     stdout.write_str(include_str!("text.txt")).unwrap();
     stdout.write_str("\n> ").unwrap();
+}
+
+fn read_file(st: &SystemTable<Boot>, filename: &str) -> String {
+    let fs = st
+        .boot_services()
+        .locate_protocol::<SimpleFileSystem>()
+        .unwrap_success();
+
+    let fs = unsafe { &mut *fs.get() };
+    let mut root = fs.open_volume().unwrap().unwrap();
+    let text_file_handle = root
+        .open(filename, FileMode::Read, FileAttribute::empty())
+        .expect("Failed to load file")
+        .unwrap();
+    let mut text_file = match text_file_handle.into_type().unwrap().unwrap() {
+        uefi::proto::media::file::FileType::Regular(f) => f,
+        uefi::proto::media::file::FileType::Dir(_) => panic!("Not expecting a directory"),
+    };
+
+    let mut buf = [0; 500];
+    let text_info: &mut FileInfo = text_file.get_info(&mut buf).unwrap().unwrap();
+    let text_size = usize::try_from(text_info.file_size()).unwrap();
+
+    let buf_layout = Layout::array::<u8>(text_size).unwrap();
+    let mut buf = allocate_buffer(buf_layout);
+
+    text_file.read(&mut buf).unwrap_success();
+
+    text_file.close();
+
+    let text_content = str::from_utf8(&buf).unwrap();
+
+    return text_content.to_string();
 }
 
 fn take_input(system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mut String) {
@@ -36,37 +69,10 @@ fn take_input(system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mu
                 init_screen(stdout);
                 buffer.clear();
             } else if buffer == "test" {
-                let fs = st
-                    .boot_services()
-                    .locate_protocol::<SimpleFileSystem>()
-                    .unwrap_success();
-
-                let fs = unsafe { &mut *fs.get() };
-                let mut root = fs.open_volume().unwrap().unwrap();
-                let text_file_handle = root
-                    .open("test.txt", FileMode::Read, FileAttribute::empty())
-                    .expect("Failed to load kernel (expected file named `test.txt`)")
-                    .unwrap();
-                let mut text_file = match text_file_handle.into_type().unwrap().unwrap() {
-                    uefi::proto::media::file::FileType::Regular(f) => f,
-                    uefi::proto::media::file::FileType::Dir(_) => panic!("Not expecting a directory"),
-                };
-
-                let mut buf = [0; 500];
-                let text_info: &mut FileInfo = text_file.get_info(&mut buf).unwrap().unwrap();
-                let text_size = usize::try_from(text_info.file_size()).unwrap();
-
-                let buf_layout = Layout::array::<u8>(text_size).unwrap();
-                let mut buf = allocate_buffer(buf_layout);
-
-                text_file.read(&mut buf).unwrap_success();
-
-                text_file.close();
-
-                let text_content = unsafe { str::from_utf8_unchecked(&buf)};
+                let text_content = read_file(&st, "test.txt");
 
                 stdout.write_char('\n').unwrap();
-                stdout.write_str(text_content).unwrap();
+                stdout.write_str(&text_content).unwrap();
                 stdout.write_str("\n> ").unwrap();
                 buffer.clear();
             }
@@ -109,16 +115,8 @@ fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
 
     loop {
         wait_for_input(st.boot_services(), &mut key_event);
-        match st.stdin().read_key().unwrap_success() {
-            None => {}
-            Some(key) => {
-                match key {
-                    Key::Printable(key) => {
-                        take_input(&mut st, key, &mut buffer);
-                    }
-                    Key::Special(_) => {}
-                }
-            }
+        if let Some(Key::Printable(key)) = st.stdin().read_key().unwrap_success() {
+            take_input(&mut st, key, &mut buffer);
         }
     }
 
