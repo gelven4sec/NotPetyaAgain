@@ -1,0 +1,16 @@
+#################################
+#                               #
+# Not Petya Again               #
+#                               #
+# by APT Sandworm               #
+#                               #
+#################################
+
+Your disk have been corrupted !
+
+To recover your data, please read the following instructions :
+1. Lorem ipsum
+2. Lorem ipsum
+3. Lorem ipsum
+
+Here's your personal ID :
