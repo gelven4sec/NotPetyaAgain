@@ -1,6 +1,10 @@
 #![no_main]
 #![no_std]
 #![feature(abi_efiapi)]
+#![feature(slice_as_chunks)]
+
+mod mbr;
+mod gpt;
 
 extern crate alloc;
 
@@ -10,12 +14,17 @@ use uefi::prelude::*;
 use uefi::{Char16, Event, ResultExt};
 use uefi::proto::console::text::{Color, Key};
 use alloc::string::{String};
+use alloc::vec;
+use alloc::vec::Vec;
 use core::alloc::Layout;
+use core::ops::Deref;
 use core::str;
 use uefi::exts::allocate_buffer;
 use uefi::proto::media::block::BlockIO;
-use uefi::proto::media::file::{File, FileAttribute, FileInfo, FileMode};
+use uefi::proto::media::file::{Directory, File, FileAttribute, FileInfo, FileMode};
 use uefi::proto::media::fs::SimpleFileSystem;
+use uefi::table::runtime::ResetType;
+use crate::mbr::MBR;
 
 fn init_screen(st: &mut SystemTable<Boot>) {
     st.stdout().clear().unwrap().unwrap();
@@ -34,8 +43,7 @@ fn init_screen(st: &mut SystemTable<Boot>) {
     st.stdout().write_str("\n> ").unwrap();
 }
 
-fn read_file(st: &SystemTable<Boot>, filename: &str) -> Result<Box<[u8]>, ()> {
-
+fn get_last_dir(st: &SystemTable<Boot>, dirpath: Vec<&str>) -> Result<Directory, ()> {
     // Get the file system protocol
     let fs = st
         .boot_services()
@@ -45,6 +53,32 @@ fn read_file(st: &SystemTable<Boot>, filename: &str) -> Result<Box<[u8]>, ()> {
 
     // Open root directory of EFI System Partition
     let mut root = fs.open_volume().unwrap_success();
+
+    for dirname in dirpath {
+        let dir_handle = match root.open(dirname, FileMode::Read, FileAttribute::empty()) {
+            Ok(file) => file.unwrap(),
+            _ => return Err(()), // Directory not found
+        };
+        root = match dir_handle.into_type().unwrap_success() {
+            uefi::proto::media::file::FileType::Dir(d) => d,
+            _ => return Err(()), // Directory is not a regular file
+        };
+    }
+
+    Ok(root)
+}
+
+fn read_file(st: &SystemTable<Boot>, filepath: &str) -> Result<Box<[u8]>, ()> {
+    let filepath_array = filepath.split('\\');
+    let mut filepath_array = filepath_array.collect::<Vec<&str>>();
+
+    //let filename = filepath_array.clone().last().unwrap();
+    let filename = filepath_array.pop().unwrap();
+
+    let mut root = match get_last_dir(&st, filepath_array) {
+        Ok(r) => r,
+        Err(_) => return Err(())
+    };
 
     // Get file handle
     let text_file_handle = match root.open(filename, FileMode::Read, FileAttribute::empty()) {
@@ -74,7 +108,7 @@ fn read_file(st: &SystemTable<Boot>, filename: &str) -> Result<Box<[u8]>, ()> {
     Ok(buf)
 }
 
-fn take_input(system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mut String) {
+fn take_input(image_handle: &Handle, system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mut String) {
     let mut st = unsafe {system_table.unsafe_clone()};
     let stdout = system_table.stdout();
     let char_key = char::from(char_16);
@@ -88,9 +122,79 @@ fn take_input(system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mu
                 buffer.clear();
             } else if buffer == "test" {
 
-                let blockio = st.boot_services().find_handles::<BlockIO>().unwrap_success();
-                log::info!("{:#?}", blockio.len());
-                log::info!("{:#?}", blockio[0]);
+                let handles = system_table
+                    .boot_services()
+                    .find_handles::<BlockIO>()
+                    .expect_success("failed to find handles for `BlockIO`");
+
+                for handle in handles {
+                    let blk = system_table
+                        .boot_services()
+                        .handle_protocol::<BlockIO>(handle)
+                        .expect_success("Failed to get BlockIO protocol");
+
+                    let blk = unsafe {&* blk.get()};
+
+                    let blk_media = blk.media();
+                    let media_id = blk_media.media_id();
+                    let block_size = blk_media.block_size();
+                    //let last_block = blk_media.last_block();
+                    let low_lba = blk_media.lowest_aligned_lba();
+
+                    let mut buf: Vec<u8> = vec![0u8; block_size as usize];
+
+                    blk.read_blocks(media_id, low_lba, &mut buf).unwrap_success();
+
+                    let data= buf.as_slice();
+                    let mbr_blk = match MBR::new(data, media_id) {
+                        Ok(m) => {
+                            if m.is_gpt_pmbr() { m } else { continue }
+                        },
+                        Err(_) => continue
+                    };
+                    log::info!("We good")
+
+                }
+
+            } else if buffer == "boot" {
+                // The whole thing doesn't work
+
+                let windows_efi = match read_file(&system_table, "EFI\\Microsoft\\Boot\\bootmgfw.old.efi") {
+                    Ok(t) => t,
+                    Err(_) => panic!("Windows efi file not found")
+                };
+
+                let windows_handle = match system_table
+                    .boot_services()
+                    .load_image_from_buffer(*image_handle, windows_efi.deref()) {
+                    Ok(h) => h.unwrap(),
+                    Err(e) => {
+                        log::info!("Load image : KO : {:#?}", e);
+                        panic!()
+                    }
+                };
+
+                match system_table.boot_services().start_image(windows_handle) {
+                    Ok(_) => log::info!("OK"),
+                    Err(e) => log::info!("Start image : KO : {:#?}", e) //TODO: That doesn't work !!
+                }
+
+            }
+            else if buffer == "windows" {
+
+                system_table.runtime_services().reset(
+                    ResetType::Shutdown,
+                    Status::SUCCESS,
+                    Some(&[])
+                );
+
+            } else if buffer == "shutdown" {
+
+                system_table.runtime_services().reset(
+                    ResetType::Shutdown,
+                    Status::SUCCESS,
+                    Some(&[])
+                );
 
             } else {
                 stdout.write_char('\n').unwrap();
@@ -121,7 +225,7 @@ fn wait_for_input(boot_services: &BootServices, events: &mut [Event; 1]) {
 }
 
 #[entry]
-fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
+fn main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     uefi_services::init(&mut st).unwrap_success();
 
     init_screen(&mut st);
@@ -132,7 +236,7 @@ fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
     loop {
         wait_for_input(st.boot_services(), &mut key_event);
         if let Some(Key::Printable(key)) = st.stdin().read_key().unwrap_success() {
-            take_input(&mut st, key, &mut buffer);
+            take_input(&handle, &mut st, key, &mut buffer);
         }
     }
 
