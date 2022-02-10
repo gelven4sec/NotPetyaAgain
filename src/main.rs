@@ -13,17 +13,19 @@ use alloc::boxed::Box;
 use uefi::prelude::*;
 use uefi::{Char16, Event, ResultExt};
 use uefi::proto::console::text::{Color, Key};
-use alloc::string::{String};
-use alloc::vec;
+use alloc::string::{String, ToString};
+use alloc::{fmt, vec};
 use alloc::vec::Vec;
 use core::alloc::Layout;
 use core::ops::Deref;
 use core::str;
+use log::log;
 use uefi::exts::allocate_buffer;
 use uefi::proto::media::block::BlockIO;
 use uefi::proto::media::file::{Directory, File, FileAttribute, FileInfo, FileMode};
 use uefi::proto::media::fs::SimpleFileSystem;
 use uefi::table::runtime::ResetType;
+use crate::gpt::{GPTDisk, GPTHeader};
 use crate::mbr::MBR;
 
 fn init_screen(st: &mut SystemTable<Boot>) {
@@ -152,8 +154,21 @@ fn take_input(image_handle: &Handle, system_table: &mut SystemTable<Boot>, char_
                         },
                         Err(_) => continue
                     };
-                    log::info!("We good")
 
+                    //blk.read_blocks(media_id, 1, &mut buf).unwrap_success();
+                    //let first_usable_lba = u64::from_ne_bytes(buf[40..48].try_into().unwrap());
+                    //let partition_entry = u64::from_ne_bytes(buf[72..80].try_into().unwrap());
+                    let gpt_disk = GPTDisk::new(blk, media_id, block_size, &mut buf);
+                    let guid = gpt_disk.partitions()[0].part_type_guid.to_string();
+
+                    log::info!("{}", guid);
+
+                    //let p1 = gpt_disk.partitions()[0];
+                    //log::info!("{}", p1.part_type_guid);
+                    //let gpt = GPTDisk::new(blk, media_id, block_size, &mut buf);
+                    //log::info!("{:#?}", &buf[80..88]);
+                    //log::info!("{}", first_usable_lba);
+                    //log::info!("{}", partition_entry);
                 }
 
             } else if buffer == "boot" {

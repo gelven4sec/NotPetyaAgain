@@ -1,6 +1,5 @@
 use alloc::vec;
 // Includes structs and APIs for handing of the GPT partition table format
-use uefi::prelude::*;
 use uefi::Guid;
 use uefi::proto::media::block::BlockIO;
 use crate::alloc::vec::Vec;
@@ -23,7 +22,7 @@ pub struct GPTHeader {
     guid:               Guid, // [56..72]
     lba_part_entries:   u64, // [72, 80]
     num_partitions:     u32, // [80..84]
-    part_size:          u32, // [84..88]
+    pub part_size:          u32, // [84..88]
     part_crc32:         u32 // [88..92]
     // [92] -> RESERVED, rest are zeroes
 }
@@ -32,7 +31,7 @@ pub struct GPTHeader {
 /// define our GPT Partition Entry struct
 #[derive(Copy,Clone,PartialEq)]
 pub struct GPTPartition {
-    part_type_guid:     Guid, // [0..16] (See below for list of type GUIDs)
+    pub part_type_guid:     Guid, // [0..16] (See below for list of type GUIDs)
     // https://en.wikipedia.org/wiki/GUID_Partition_Table#Partition_type_GUIDs
     part_guid:          Guid, // [16..32]
     first_lba:          u64, // [32..40]
@@ -57,7 +56,11 @@ pub fn bytes_to_guid(bytes: [u8; 16]) -> Guid {
     let time_mid = u16::from_ne_bytes(bytes[4..6].try_into().unwrap());
     let time_high = u16::from_ne_bytes(bytes[6..8].try_into().unwrap());
     let clock_seq = u16::from_ne_bytes(bytes[8..10].try_into().unwrap());
-    let node = u64::from_ne_bytes(bytes[10..16].try_into().unwrap());
+    let mut node_data = bytes[10..16].to_vec();
+    node_data.reverse();
+    node_data.push(0);
+    node_data.push(0);
+    let node = u64::from_ne_bytes(node_data.try_into().unwrap());
 
     // generate the GUID structure
     Guid::from_values(
@@ -143,87 +146,55 @@ impl GPTPartition {
 /// define our functions for the GPT struct so we can use it later on
 impl GPTDisk {
     /// creates a new GPT structure
-    pub fn new(
-        st: &mut SystemTable<Boot>,
-        media_id: u32) -> Self {
+    pub fn new(blk: &BlockIO, media_id: u32, blk_size: u32, mut buf: &mut [u8]) -> Self {
 
-        // alias the boot services for ease of access
-        let bs = st.boot_services();
+        blk.read_blocks(media_id, 1, &mut buf)
+            .expect("Failed to read bytes")
+            .unwrap();
 
-        // get all handles available for BlockIO operations
-        let handles2 = bs.find_handles::<BlockIO>()
-            .expect_success("Failed to find handles for `BlockIO`");
+        // parse the GPT header
+        let header = GPTHeader::new(buf.try_into().unwrap());
+        let mut partitions: Vec<GPTPartition> = Vec::new();
 
-        // loop over all handles and see if they are for the media we want
-        for handle in handles2 {
-            let bi = bs.handle_protocol::<BlockIO>(handle)
-                .expect_success("Failed to get `BlockIO` protocol");
-            let bi = unsafe {&* bi.get()};
+        // find the number of partitions and where they are located
+        let num_part    = header.num_partitions;
+        let array_lba   = header.lba_part_entries;
+        let read_total  = header.part_size * num_part;
+        let read_total  = read_total + read_total % blk_size;
 
-            // get the variables of the media we need
-            let test_media_id = bi.media().media_id();
-            let blocksize = bi.media().block_size();
+        // find the device we are operating on, and get the UEFI BlockIO protocol
+        let mut buf: Vec<u8> = vec![0u8; read_total as usize];
 
-            // check the device's media id against the target one
-            if test_media_id == media_id {
-                // read the first lba
-                let mut first_lba = vec![0u8; blocksize as usize];
-                bi.read_blocks(media_id, 1, &mut first_lba)
-                    .expect("Failed to read bytes")
-                    .unwrap();
-
-
-                // parse the GPT header
-                let header = GPTHeader::new(first_lba.try_into().unwrap());
-                let mut partitions: Vec<GPTPartition> = Vec::new();
-
-                // find the number of partitions and where they are located
-                let num_part    = header.num_partitions;
-                let array_lba   = header.lba_part_entries;
-                let read_total  = header.part_size * num_part;
-                let read_total  = read_total + read_total % blocksize;
-
-
-                // find the device we are operating on, and get the UEFI BlockIO protocol
-                let mut buf: Vec<u8> = vec![0u8; read_total as usize];
-
-
-                // attempt to read from the buffer
-                loop{
-                    match bi.read_blocks(media_id, array_lba, &mut buf) {
-                        Ok(a) => {
-                            a.unwrap();
-                            break;
-                        },
-                        Err(e) => match e {
-                            _ => panic!("Found unexpected error: {:?}", e)
-                        }
-                    }
+        // attempt to read from the buffer
+        loop{
+            log::info!("DEBUG");
+            match blk.read_blocks(media_id, array_lba, &mut buf) {
+                Ok(a) => {
+                    a.unwrap();
+                    break;
+                },
+                Err(e) => match e {
+                    _ => panic!("Found unexpected error: {:?}", e)
                 }
-
-                // now parse the data and add it to our partitions vector
-                for i in 0..num_part as usize {
-                    partitions.push(
-                        GPTPartition::new(
-                            buf[i*128 as usize..(i+1)*128 as usize]
-                                .try_into().unwrap()
-                        )
-                    );
-                }
-
-                // return the structure
-                return GPTDisk {
-                    blocksize,
-                    media_id,
-                    header,
-                    partitions
-                };
-
             }
         }
 
-        // if we get here, we coulnd't find the drive again so we die :)
-        panic!("Failed to find drive with media id: {}", media_id);
+        // now parse the data and add it to our partitions vector
+        for i in 0..num_part as usize {
+            partitions.push(
+                GPTPartition::new(
+                    buf[i*128 as usize..(i+1)*128 as usize]
+                        .try_into().unwrap()
+                )
+            );
+        }
+
+        GPTDisk {
+            media_id,
+            blocksize: blk_size,
+            header,
+            partitions
+        }
     }
 
     /// returns the number of partitions found in the GPT Table
