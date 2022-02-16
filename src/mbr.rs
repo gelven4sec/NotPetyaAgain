@@ -35,7 +35,7 @@ pub struct MbrPartition {
     // 0x3-> bits 7-0 -> sector 7-0
     chs_start:      [u8; 3],
     chs_end:        [u8; 3],
-    part_type:      MbrPartTypes,
+    pub part_type:      MbrPartTypes,
     lba_start:      u32,
     num_sectors:    u32
 }
@@ -44,7 +44,7 @@ pub struct MbrPartition {
 /// defines our MBR structure
 pub struct MBR {
     media_id: u32,
-    partitions: Vec<MbrPartition>,
+    pub partitions: Vec<MbrPartition>,
 }
 
 

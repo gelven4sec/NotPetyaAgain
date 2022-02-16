@@ -33,9 +33,9 @@ pub struct GPTHeader {
 pub struct GPTPartition {
     pub part_type_guid:     Guid, // [0..16] (See below for list of type GUIDs)
     // https://en.wikipedia.org/wiki/GUID_Partition_Table#Partition_type_GUIDs
-    part_guid:          Guid, // [16..32]
-    first_lba:          u64, // [32..40]
-    last_lba:           u64, // [40..48]
+    pub part_guid:          Guid, // [16..32]
+    pub first_lba:          u64, // [32..40]
+    pub last_lba:           u64, // [40..48]
     attr_flags:         u64, // [48..56]
     part_name:          [u8; 72] // [56..128] note this is stored using UTF-16 LE encoding...
 }
@@ -55,7 +55,9 @@ pub fn bytes_to_guid(bytes: [u8; 16]) -> Guid {
     let time_low = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
     let time_mid = u16::from_ne_bytes(bytes[4..6].try_into().unwrap());
     let time_high = u16::from_ne_bytes(bytes[6..8].try_into().unwrap());
-    let clock_seq = u16::from_ne_bytes(bytes[8..10].try_into().unwrap());
+    let mut clock_seq_data = bytes[8..10].to_vec();
+    clock_seq_data.reverse();
+    let clock_seq = u16::from_ne_bytes(clock_seq_data.try_into().unwrap());
     let mut node_data = bytes[10..16].to_vec();
     node_data.reverse();
     node_data.push(0);
@@ -167,7 +169,6 @@ impl GPTDisk {
 
         // attempt to read from the buffer
         loop{
-            log::info!("DEBUG");
             match blk.read_blocks(media_id, array_lba, &mut buf) {
                 Ok(a) => {
                     a.unwrap();

@@ -19,11 +19,11 @@ use alloc::vec::Vec;
 use core::alloc::Layout;
 use core::ops::Deref;
 use core::str;
-use log::log;
 use uefi::exts::allocate_buffer;
 use uefi::proto::media::block::BlockIO;
 use uefi::proto::media::file::{Directory, File, FileAttribute, FileInfo, FileMode};
 use uefi::proto::media::fs::SimpleFileSystem;
+use uefi::proto::media::partition::PartitionInfo;
 use uefi::table::runtime::ResetType;
 use crate::gpt::{GPTDisk, GPTHeader};
 use crate::mbr::MBR;
@@ -150,18 +150,31 @@ fn take_input(image_handle: &Handle, system_table: &mut SystemTable<Boot>, char_
                     let data= buf.as_slice();
                     let mbr_blk = match MBR::new(data, media_id) {
                         Ok(m) => {
-                            if m.is_gpt_pmbr() { m } else { continue }
+                            if !m.is_gpt_pmbr() { continue }
+                            m
                         },
-                        Err(_) => continue
+                        Err(_) => {
+                            continue
+                        }
                     };
 
-                    //blk.read_blocks(media_id, 1, &mut buf).unwrap_success();
+                    blk.read_blocks(media_id, 1, &mut buf).unwrap_success();
                     //let first_usable_lba = u64::from_ne_bytes(buf[40..48].try_into().unwrap());
                     //let partition_entry = u64::from_ne_bytes(buf[72..80].try_into().unwrap());
                     let gpt_disk = GPTDisk::new(blk, media_id, block_size, &mut buf);
-                    let guid = gpt_disk.partitions()[0].part_type_guid.to_string();
 
-                    log::info!("{}", guid);
+                    for partition in gpt_disk.partitions() {
+                        if partition.part_type_guid.to_string() == "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7" {
+                        //if partition.part_type_guid.to_string() != "00000000-0000-0000-0000-000000000000" {
+                            //log::info!("{}", partition.first_lba);
+                            blk.read_blocks(media_id, partition.first_lba, &mut buf).unwrap_success();
+                            let mft_lcn = u64::from_ne_bytes(buf[48..56].try_into().unwrap());
+
+                            blk.read_blocks(media_id, (mft_lcn*8)+partition.first_lba, &mut buf).unwrap_success();
+                            let tmp = &buf[0..4];
+                            log::info!("{:#?}", tmp);
+                        }
+                    }
 
                     //let p1 = gpt_disk.partitions()[0];
                     //log::info!("{}", p1.part_type_guid);
