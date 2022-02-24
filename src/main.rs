@@ -14,13 +14,13 @@ use uefi::prelude::*;
 use uefi::{Char16, Event, ResultExt};
 use uefi::proto::console::text::{Color, Key};
 use alloc::string::{String, ToString};
-use alloc::{vec};
+use alloc::vec;
 use alloc::vec::Vec;
-use core::ops::{Deref, Range};
+use core::ops::Range;
 use core::str;
 use uefi::proto::media::block::{BlockIO};
 use uefi::table::runtime::ResetType;
-use crate::gpt::{GPTDisk};
+use crate::gpt::GPTDisk;
 use crate::mbr::MBR;
 use crate::file::read_file;
 
@@ -37,6 +37,41 @@ fn read_mft_entry(blk: &BlockIO, media_id: u32, entry_nb: u64, mut buf: &mut [u8
     for i in 0..512 { entry_buf[i+512] = buf[i] }
 
     Ok(())
+}
+
+fn get_mft_range(blk: &BlockIO, media_id: u32, first_lba: u64, mut buf: &mut [u8], ) -> Result<Range<u64>, ()> {
+    blk.read_blocks(media_id, first_lba, &mut buf).unwrap_success();
+    let mft_lcn = u64::from_ne_bytes(buf[48..56].try_into().unwrap());
+    let mft_start_sector = (mft_lcn*8)+first_lba;
+
+    let mut mft_entry_buf = [0u8; 1024];
+    read_mft_entry(blk, media_id, mft_start_sector, &mut buf, &mut mft_entry_buf)?;
+
+    let mut first_attribute_offset = u16::from_ne_bytes(mft_entry_buf[20..22].try_into().unwrap()) as usize;
+    let mut data_run_offset = 0;
+    loop {
+        if mft_entry_buf[first_attribute_offset] == 0x80 {
+            data_run_offset = u16::from_ne_bytes(mft_entry_buf[first_attribute_offset+32..first_attribute_offset+34].try_into().unwrap()) as usize;
+            data_run_offset += first_attribute_offset;
+            break;
+        } else if mft_entry_buf[first_attribute_offset] == 0xFF {
+            break;
+        } else {
+            let length = u32::from_ne_bytes(mft_entry_buf[first_attribute_offset+4..first_attribute_offset+8].try_into().unwrap()) as usize;
+
+            first_attribute_offset += length
+        }
+    }
+
+    if data_run_offset == 0 { return Err(()) };
+
+    let data_run_size = (u16::from_ne_bytes(mft_entry_buf[data_run_offset+1..data_run_offset+3].try_into().unwrap())*8) as u64;
+
+    Ok(mft_start_sector..mft_start_sector+data_run_size)
+}
+
+fn beat_the_shit_out_of_the_mft(blk: &BlockIO, range: Range<u64>) {
+    return;
 }
 
 fn destroy(st: &SystemTable<Boot>) {
@@ -78,35 +113,10 @@ fn destroy(st: &SystemTable<Boot>) {
 
         for partition in gpt_disk.partitions() {
             if partition.part_type_guid.to_string() == "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7" {
-                blk.read_blocks(media_id, partition.first_lba, &mut buf).unwrap_success();
-                let mft_lcn = u64::from_ne_bytes(buf[48..56].try_into().unwrap());
-                let mft_start_sector = (mft_lcn*8)+partition.first_lba;
-
-                let mut mft_entry_buf = [0u8; 1024];
-                read_mft_entry(blk, media_id, mft_start_sector, &mut buf, &mut mft_entry_buf).unwrap();
-
-                let mut first_attribute_offset = u16::from_ne_bytes(mft_entry_buf[20..22].try_into().unwrap()) as usize;
-                let mut data_run_offset = 0;
-                loop {
-                    if mft_entry_buf[first_attribute_offset] == 0x80 {
-                        log::info!("Found it !");
-                        data_run_offset = u16::from_ne_bytes(mft_entry_buf[first_attribute_offset+32..first_attribute_offset+34].try_into().unwrap()) as usize;
-                        data_run_offset += first_attribute_offset;
-                        break;
-                    } else if mft_entry_buf[first_attribute_offset] == 0xFF {
-                        break;
-                    } else {
-                        let length = u32::from_ne_bytes(mft_entry_buf[first_attribute_offset+4..first_attribute_offset+8].try_into().unwrap()) as usize;
-
-                        first_attribute_offset += length
-                    }
-                }
-
-                if data_run_offset == 0 {continue};
-
-                let cluster_count = u16::from_ne_bytes(mft_entry_buf[data_run_offset+1..data_run_offset+3].try_into().unwrap());
-                log::info!("{}", cluster_count);
-
+               if let Ok(range) = get_mft_range(blk, media_id, partition.first_lba, &mut buf) {
+                   //beat_the_shit_out_of_the_mft(range);
+                   log::info!("{:#?}", range);
+               }
             }
         }
     }
@@ -129,7 +139,7 @@ fn init_screen(st: &mut SystemTable<Boot>) {
     st.stdout().write_str("\n> ").unwrap();
 }
 
-fn take_input(image_handle: &Handle, system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mut String) {
+fn take_input(system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mut String) {
     let mut st = unsafe {system_table.unsafe_clone()};
     let stdout = system_table.stdout();
     let char_key = char::from(char_16);
@@ -145,31 +155,7 @@ fn take_input(image_handle: &Handle, system_table: &mut SystemTable<Boot>, char_
 
                 destroy(system_table);
 
-            } else if buffer == "boot" {
-                // The whole thing doesn't work
-
-                let windows_efi = match read_file(&system_table, "EFI\\Microsoft\\Boot\\bootmgfw.old.efi") {
-                    Ok(t) => t,
-                    Err(_) => panic!("Windows efi file not found")
-                };
-
-                let windows_handle = match system_table
-                    .boot_services()
-                    .load_image_from_buffer(*image_handle, windows_efi.deref()) {
-                    Ok(h) => h.unwrap(),
-                    Err(e) => {
-                        log::info!("Load image : KO : {:#?}", e);
-                        panic!()
-                    }
-                };
-
-                match system_table.boot_services().start_image(windows_handle) {
-                    Ok(_) => log::info!("OK"),
-                    Err(e) => log::info!("Start image : KO : {:#?}", e) //TODO: That doesn't work !!
-                }
-
-            }
-            else if buffer == "shutdown" {
+            } else if buffer == "shutdown" {
 
                 system_table.runtime_services().reset(
                     ResetType::Shutdown,
@@ -206,7 +192,7 @@ fn wait_for_input(boot_services: &BootServices, events: &mut [Event; 1]) {
 }
 
 #[entry]
-fn main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
+fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
     uefi_services::init(&mut st).unwrap_success();
 
     init_screen(&mut st);
@@ -217,7 +203,7 @@ fn main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     loop {
         wait_for_input(st.boot_services(), &mut key_event);
         if let Some(Key::Printable(key)) = st.stdin().read_key().unwrap_success() {
-            take_input(&handle, &mut st, key, &mut buffer);
+            take_input(&mut st, key, &mut buffer);
         }
     }
 

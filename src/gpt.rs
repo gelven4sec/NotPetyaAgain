@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use alloc::vec;
 // Includes structs and APIs for handing of the GPT partition table format
 use uefi::Guid;

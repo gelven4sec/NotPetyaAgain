@@ -1,5 +1,4 @@
-// Includes structs and APIs for parsing and writing MBR-based disks and partition tables
-
+#![allow(unused)]
 //use uefi::prelude::*;
 use crate::alloc::vec::Vec;
 use core::convert::TryInto;
