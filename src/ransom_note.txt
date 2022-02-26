@@ -6,7 +6,7 @@
 #                               #
 #################################
 
-Your disk have been corrupted !
+Your computer have been encrypted !
 
 To recover your data, please read the following instructions :
 1. Lorem ipsum

