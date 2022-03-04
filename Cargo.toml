@@ -1,11 +1,11 @@
 [package]
 name = "notpetyaagain_boot"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-uefi = {version = "0.13.0", features = ["exts", "logger"]}
-uefi-services = "0.10.0"
+uefi = {version = "0.14.0", features = ["exts", "logger"]}
+uefi-services = "0.11.0"
 log = {version = "0.4.0", default-features = false}
