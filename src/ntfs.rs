@@ -4,31 +4,47 @@ use core::ops::Range;
 
 use uefi::prelude::SystemTable;
 use uefi::proto::media::block::BlockIO;
-use uefi::ResultExt;
 use uefi::table::Boot;
+use uefi::ResultExt;
 
 const OEM_ID: &[u8; 8] = b"NTFS    ";
 
-fn read_mft_entry(blk: &BlockIO, media_id: u32, entry_nb: u64, mut buf: &mut [u8], entry_buf: &mut [u8]) -> Result<(), ()> {
+fn read_mft_entry(
+    blk: &BlockIO,
+    media_id: u32,
+    entry_nb: u64,
+    buf: &mut [u8],
+    entry_buf: &mut [u8],
+) -> Result<(), ()> {
     // Read the first half of the file record
-    blk.read_blocks(media_id, entry_nb, &mut buf).unwrap_success();
+    blk.read_blocks(media_id, entry_nb, buf)
+        .unwrap_success();
 
     // If it doesn't start the file FILE signature then get out
-    if &buf[0..4] != b"FILE" { return Err(()); }
+    if &buf[0..4] != b"FILE" {
+        return Err(());
+    }
     // Then put in the entry buffer
-    for i in 0..512 { entry_buf[i] = buf[i] }
+    entry_buf[..512].copy_from_slice(&buf[..512]);
 
     // Read the other half
-    blk.read_blocks(media_id, entry_nb + 1, &mut buf).unwrap_success();
-    for i in 0..512 { entry_buf[i + 512] = buf[i] }
+    blk.read_blocks(media_id, entry_nb + 1, buf)
+        .unwrap_success();
+    entry_buf[512..(512 + 512)].copy_from_slice(&buf[..512]);
 
     // We're good
     Ok(())
 }
 
-fn get_mft_ranges(blk: &mut BlockIO, media_id: u32, boot_sector: u64, mut buf: &mut [u8]) -> Result<Vec<Range<u64>>, ()> {
-    // Read Boot Sector, whicj is the first sector of NTFS partition
-    blk.read_blocks(media_id, boot_sector, &mut buf).unwrap_success();
+fn get_mft_ranges(
+    blk: &mut BlockIO,
+    media_id: u32,
+    boot_sector: u64,
+    buf: &mut [u8],
+) -> Result<Vec<Range<u64>>, ()> {
+    // Read Boot Sector, which is the first sector of NTFS partition
+    blk.read_blocks(media_id, boot_sector, buf)
+        .unwrap_success();
 
     // Get start sector of $MFT and $MFTMirr from Boot Sector
     let mft_start = u64::from_ne_bytes(buf[48..56].try_into().unwrap());
@@ -46,27 +62,30 @@ fn get_mft_ranges(blk: &mut BlockIO, media_id: u32, boot_sector: u64, mut buf: &
     let mut mft_entry_buf = [0u8; 1024];
 
     // Read the $MFT file record entry, which is the first entry of the MFT zone
-    read_mft_entry(blk, media_id, mft_start, &mut buf, &mut mft_entry_buf)?;
+    read_mft_entry(blk, media_id, mft_start, buf, &mut mft_entry_buf)?;
 
     // Get the first attribute offset from of file record entry header
-    let mut first_attribute_offset = u16::from_ne_bytes(mft_entry_buf[20..22].try_into().unwrap()) as usize;
+    let mut first_attribute_offset =
+        u16::from_ne_bytes(mft_entry_buf[20..22].try_into().unwrap()) as usize;
 
     // Iterate over attributes header until finding the $DATA attribute (0x80) or end (0xFF)
     let mut data_run_offset = 0;
     loop {
         if mft_entry_buf[first_attribute_offset] == 0x80 {
-            data_run_offset = u16::from_ne_bytes(mft_entry_buf[first_attribute_offset + 32..first_attribute_offset + 34]
-                .try_into()
-                .unwrap()
+            data_run_offset = u16::from_ne_bytes(
+                mft_entry_buf[first_attribute_offset + 32..first_attribute_offset + 34]
+                    .try_into()
+                    .unwrap(),
             ) as usize;
             data_run_offset += first_attribute_offset;
             break;
         } else if mft_entry_buf[first_attribute_offset] == 0xFF {
             break;
         } else {
-            let length = u32::from_ne_bytes(mft_entry_buf[first_attribute_offset + 4..first_attribute_offset + 8]
-                .try_into()
-                .unwrap()
+            let length = u32::from_ne_bytes(
+                mft_entry_buf[first_attribute_offset + 4..first_attribute_offset + 8]
+                    .try_into()
+                    .unwrap(),
             ) as usize;
 
             first_attribute_offset += length
@@ -74,53 +93,74 @@ fn get_mft_ranges(blk: &mut BlockIO, media_id: u32, boot_sector: u64, mut buf: &
     }
 
     // If it doesn't find the $DATA (which would be odd) get out
-    if data_run_offset == 0 { return Err(()); };
+    if data_run_offset == 0 {
+        return Err(());
+    };
 
-    let mut ranges: Vec<Range<u64>> = vec!();
+    let mut ranges: Vec<Range<u64>> = vec![];
 
     loop {
         match mft_entry_buf[data_run_offset] {
-
             0x31 => {
-                let data_run_size = (mft_entry_buf[data_run_offset + 1]*8) as u64;
-                let mut data_run_first = mft_entry_buf[data_run_offset + 2..data_run_offset + 5].to_vec();
+                let data_run_size = (mft_entry_buf[data_run_offset + 1] * 8) as u64;
+                let mut data_run_first =
+                    mft_entry_buf[data_run_offset + 2..data_run_offset + 5].to_vec();
                 data_run_first.push(0);
-                let data_run_first = (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
+                let data_run_first =
+                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
 
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 5;
             }
 
             0x32 => {
-                let data_run_size = (u16::from_ne_bytes(mft_entry_buf[data_run_offset + 1..data_run_offset + 3].try_into().unwrap()) * 8) as u64;
+                let data_run_size = (u16::from_ne_bytes(
+                    mft_entry_buf[data_run_offset + 1..data_run_offset + 3]
+                        .try_into()
+                        .unwrap(),
+                ) * 8) as u64;
 
-                let mut data_run_first = mft_entry_buf[data_run_offset + 3..data_run_offset + 6].to_vec();
+                let mut data_run_first =
+                    mft_entry_buf[data_run_offset + 3..data_run_offset + 6].to_vec();
                 data_run_first.push(0);
-                let data_run_first = (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
+                let data_run_first =
+                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
 
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 6;
             }
 
             0x33 => {
-                let mut data_run_size = mft_entry_buf[data_run_offset + 1..data_run_offset + 4].to_vec();
+                let mut data_run_size =
+                    mft_entry_buf[data_run_offset + 1..data_run_offset + 4].to_vec();
                 data_run_size.push(0);
-                let data_run_size = (u16::from_ne_bytes(data_run_size.try_into().unwrap()) * 8) as u64;
-                let mut data_run_first = mft_entry_buf[data_run_offset + 4..data_run_offset + 7].to_vec();
+                let data_run_size =
+                    (u16::from_ne_bytes(data_run_size.try_into().unwrap()) * 8) as u64;
+                let mut data_run_first =
+                    mft_entry_buf[data_run_offset + 4..data_run_offset + 7].to_vec();
                 data_run_first.push(0);
-                let data_run_first = (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
+                let data_run_first =
+                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 7;
             }
 
             0x42 => {
-                let data_run_size = (u16::from_ne_bytes(mft_entry_buf[data_run_offset + 1..data_run_offset + 3].try_into().unwrap()) * 8) as u64;
-                let data_run_first = (u32::from_ne_bytes(mft_entry_buf[data_run_offset + 3..data_run_offset + 7].try_into().unwrap()) * 8) as u64;
+                let data_run_size = (u16::from_ne_bytes(
+                    mft_entry_buf[data_run_offset + 1..data_run_offset + 3]
+                        .try_into()
+                        .unwrap(),
+                ) * 8) as u64;
+                let data_run_first = (u32::from_ne_bytes(
+                    mft_entry_buf[data_run_offset + 3..data_run_offset + 7]
+                        .try_into()
+                        .unwrap(),
+                ) * 8) as u64;
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 7;
             }
 
-            _ => break
+            _ => break,
         }
     }
 
@@ -167,7 +207,9 @@ pub fn destroy(st: &SystemTable<Boot>) {
         blk.read_blocks(media_id, 0, &mut buf).unwrap_success();
 
         // If not a NTFS partition then get out
-        if &buf[3..11] != OEM_ID { continue; }
+        if &buf[3..11] != OEM_ID {
+            continue;
+        }
 
         if let Ok(ranges) = get_mft_ranges(blk, media_id, 0, &mut buf) {
             beat_the_shit_out_of_the_mft(blk, media_id, ranges);

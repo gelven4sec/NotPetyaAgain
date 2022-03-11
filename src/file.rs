@@ -1,11 +1,12 @@
 use alloc::boxed::Box;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::alloc::Layout;
 use uefi::exts::allocate_buffer;
 use uefi::prelude::{Boot, SystemTable};
 use uefi::proto::media::file::{Directory, File, FileAttribute, FileInfo, FileMode};
 use uefi::proto::media::fs::SimpleFileSystem;
-use uefi::ResultExt;
+use uefi::{CStr16, ResultExt};
 
 fn get_last_dir(st: &SystemTable<Boot>, dirpath: Vec<&str>) -> Result<Directory, ()> {
     // Get the file system protocol
@@ -19,6 +20,8 @@ fn get_last_dir(st: &SystemTable<Boot>, dirpath: Vec<&str>) -> Result<Directory,
     let mut root = fs.open_volume().unwrap_success();
 
     for dirname in dirpath {
+        let mut dirname_buf = vec![0u16; dirname.len() + 1];
+        let dirname = CStr16::from_str_with_buf(dirname, &mut dirname_buf).unwrap();
         let dir_handle = match root.open(dirname, FileMode::Read, FileAttribute::empty()) {
             Ok(file) => file.unwrap(),
             _ => return Err(()), // Directory not found
@@ -39,12 +42,14 @@ pub fn read_file(st: &SystemTable<Boot>, filepath: &str) -> Result<Box<[u8]>, ()
     //let filename = filepath_array.clone().last().unwrap();
     let filename = filepath_array.pop().unwrap();
 
-    let mut root = match get_last_dir(&st, filepath_array) {
+    let mut root = match get_last_dir(st, filepath_array) {
         Ok(r) => r,
-        Err(_) => return Err(())
+        Err(_) => return Err(()),
     };
 
     // Get file handle
+    let mut filename_buf = vec![0u16; filename.len() + 1];
+    let filename = CStr16::from_str_with_buf(filename, &mut filename_buf).unwrap();
     let text_file_handle = match root.open(filename, FileMode::Read, FileAttribute::empty()) {
         Ok(file) => file.unwrap(),
         _ => return Err(()), // File not found
