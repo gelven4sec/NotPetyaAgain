@@ -9,10 +9,11 @@ edition = "2021"
 uefi = { version = "0.14.0", features = ["exts", "logger"] }
 uefi-services = "0.11.0"
 log = { version = "0.4.0", default-features = false }
-#getrandom = { version = "0.2", features = ["rdrand"] }
+getrandom = { version = "0.2", features = ["rdrand"] }
 #rand_core = {version = "0.6.3", default-features = false, features = ["getrandom"] }
-#rand = { version = "0.8", default-features = false, features = ["getrandom"] }
-#x25519-dalek = { version = "2.0.0-pre.1", default-features = false , features = ["u64_backend"]}
+rand = { version = "0.8", default-features = false, features = ["getrandom"] }
+x25519-dalek = { version = "2.0.0-pre.1", default-features = false , features = ["u64_backend"]}
+hex = { version = "0.4", default-features = false }
 #k256 = { version = "0.11.0-pre.0", default-features = false, features = ["ecdh", "jwk"] }
 
 [patch.crates-io]
