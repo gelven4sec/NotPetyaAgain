@@ -39,7 +39,6 @@ pub fn read_file(st: &SystemTable<Boot>, filepath: &str) -> Result<Box<[u8]>, ()
     let filepath_array = filepath.split('\\');
     let mut filepath_array = filepath_array.collect::<Vec<&str>>();
 
-    //let filename = filepath_array.clone().last().unwrap();
     let filename = filepath_array.pop().unwrap();
 
     let mut root = match get_last_dir(st, filepath_array) {
@@ -75,4 +74,32 @@ pub fn read_file(st: &SystemTable<Boot>, filepath: &str) -> Result<Box<[u8]>, ()
     text_file.close();
 
     Ok(buf)
+}
+
+pub fn write_file(st: &SystemTable<Boot>, filepath: &str, buffer: &[u8]) -> Result<(), ()> {
+    let filepath_array = filepath.split('\\');
+    let mut filepath_array = filepath_array.collect::<Vec<&str>>();
+
+    let filename = filepath_array.pop().unwrap();
+
+    let mut root = match get_last_dir(st, filepath_array) {
+        Ok(r) => r,
+        Err(_) => return Err(()),
+    };
+
+    // Get file handle
+    let mut filename_buf = vec![0u16; filename.len() + 1];
+    let filename = CStr16::from_str_with_buf(filename, &mut filename_buf).unwrap();
+    let file_handle = match root.open(filename, FileMode::CreateReadWrite, FileAttribute::empty()) {
+        Ok(file) => file.unwrap(),
+        _ => return Err(()),
+    };
+    let mut file_handle = match file_handle.into_type().unwrap_success() {
+        uefi::proto::media::file::FileType::Regular(f) => f,
+        _ => return Err(()),
+    };
+
+    file_handle.write(buffer).ok();
+
+    Ok(())
 }

