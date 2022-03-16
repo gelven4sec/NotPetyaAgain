@@ -10,9 +10,7 @@ use uefi::{CStr16, Error, Status};
 
 fn get_last_dir(st: &SystemTable<Boot>, dirpath: Vec<&str>) -> uefi::Result<Directory, ()> {
     // Get the file system protocol
-    let fs = st
-        .boot_services()
-        .locate_protocol::<SimpleFileSystem>()?;
+    let fs = st.boot_services().locate_protocol::<SimpleFileSystem>()?;
     let fs = unsafe { &mut *fs.get() }; // Unsafe because we need to use the raw pointer
 
     // Open root directory of EFI System Partition

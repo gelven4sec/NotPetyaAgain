@@ -52,7 +52,11 @@ fn init_ransom_screen(st: &mut SystemTable<Boot>) -> uefi::Result {
     Ok(())
 }
 
-fn take_input(system_table: &mut SystemTable<Boot>, char_16: Char16, buffer: &mut String) -> uefi::Result {
+fn take_input(
+    system_table: &mut SystemTable<Boot>,
+    char_16: Char16,
+    buffer: &mut String,
+) -> uefi::Result {
     let mut st = unsafe { system_table.unsafe_clone() };
     let stdout = system_table.stdout();
     let char_key = char::from(char_16);

