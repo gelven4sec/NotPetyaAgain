@@ -11,10 +11,6 @@ uefi-services = "0.12.1"
 log = { version = "0.4.0", default-features = false }
 getrandom = { version = "0.2", features = ["rdrand"] }
 rand = { version = "0.8", default-features = false, features = ["getrandom"] }
-x25519-dalek = { version = "2.0.0-pre.1", default-features = false , features = ["u64_backend"]}
+x25519-dalek = { version = "2.0.0-pre.1", default-features = false, features = ["u64_backend"] }
 hex = { version = "0.4", default-features = false }
-aes-gcm = "0.9.4"
-
-#[patch.crates-io]
-#uefi = { path = "../uefi-rs" }
-#uefi-services = { path = "../uefi-rs/uefi-services" }
+aes = { version = "0.7.5", features = ["force-soft"] }
