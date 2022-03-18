@@ -14,9 +14,11 @@ use uefi::{Char16, Event};
 
 use crate::file::read_file;
 use crate::ntfs::destroy;
+use crate::recover::recover;
 
 mod file;
 mod ntfs;
+mod recover;
 
 fn init_chdsk_screen(st: &mut SystemTable<Boot>) -> uefi::Result {
     st.stdout().clear()?;
@@ -74,8 +76,7 @@ fn take_input(
                     Some(&[]),
                 );
             } else {
-                stdout.write_char('\n').unwrap();
-                stdout.write_str(buffer.as_str()).unwrap();
+                recover(&mut st, buffer.as_bytes())?;
                 stdout.write_str("\n> ").unwrap();
                 buffer.clear();
             }

