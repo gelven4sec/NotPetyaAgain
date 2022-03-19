@@ -144,7 +144,6 @@ pub fn get_data_runs(mft_entry_buf: &[u8]) -> uefi::Result<Vec<Range<u64>>> {
     }
 
     Ok(ranges)
-
 }
 
 fn get_mft_ranges(
