@@ -91,18 +91,21 @@ pub fn recover(st: &mut SystemTable<Boot>, key_bytes: &[u8]) -> uefi::Result {
         let mft_start = u64::from_ne_bytes(buf[48..56].try_into().unwrap()) * 8;
         let first_run_size = u64::from_ne_bytes(buf[72..80].try_into().unwrap());
 
-        log::info!("mft_start: {}", mft_start);
-        log::info!("first_run_size: {}", first_run_size);
-
         // Decrypt first data run
         decrypt_data_run(blk, media_id, key, mft_start..mft_start + first_run_size)?;
 
         let mut entry_buf = [0u8; 1024];
         read_mft_entry(blk, media_id, mft_start, &mut buf, &mut entry_buf).unwrap();
 
-        let ranges = get_data_runs(&entry_buf)?;
+        let mut ranges = get_data_runs(&entry_buf)?;
+        ranges.remove(0);
 
-        log::info!("Ranges: {:#?}", ranges);
+        for range in ranges {
+            decrypt_data_run(blk, media_id, key, range)?;
+        }
     }
+
+    st.stdout().write_str("\nFinished !").unwrap();
+
     Ok(())
 }

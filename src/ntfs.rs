@@ -197,8 +197,6 @@ fn beat_the_shit_out_of_the_mft(
     let cipher = Aes256::new(key);
     let mut blocks: Vec<Block> = vec![];
 
-    log::info!("Start destroying...");
-
     for run in mft_runs {
         for sector in run {
             if sector % 2 == 0 {
@@ -222,8 +220,6 @@ fn beat_the_shit_out_of_the_mft(
             }
         }
     }
-
-    log::info!("Finished !");
 
     Ok(())
 }
