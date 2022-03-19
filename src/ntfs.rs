@@ -12,9 +12,9 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::file::write_file;
 
-const OEM_ID: &[u8; 8] = b"NTFS    ";
+pub const OEM_ID: &[u8; 8] = b"NTFS    ";
 
-fn read_mft_entry(
+pub fn read_mft_entry(
     blk: &BlockIO,
     media_id: u32,
     entry_nb: u64,
@@ -39,33 +39,7 @@ fn read_mft_entry(
     Ok(())
 }
 
-fn get_mft_ranges(
-    blk: &mut BlockIO,
-    media_id: u32,
-    boot_sector: u64,
-    buf: &mut [u8],
-) -> uefi::Result<Vec<Range<u64>>> {
-    // Read Boot Sector, which is the first sector of NTFS partition
-    blk.read_blocks(media_id, boot_sector, buf)?;
-
-    // Get start sector of $MFT and $MFTMirr from Boot Sector
-    let mft_start = u64::from_ne_bytes(buf[48..56].try_into().unwrap());
-    let mft_start = (mft_start * 8) + boot_sector;
-    let mft_mir_start = u64::from_ne_bytes(buf[56..64].try_into().unwrap());
-    let mft_mir_start = (mft_mir_start * 8) + boot_sector;
-
-    // Destroy the $MFTMirr cluster, do it here cause it's only 8 sectors to overwrite
-    let buf2 = [0u8; 512];
-    for sector in mft_mir_start..mft_mir_start + 8 {
-        blk.write_blocks(media_id, sector, &buf2)?;
-    }
-
-    // Prepare a buffer with the size of a file record entry
-    let mut mft_entry_buf = [0u8; 1024];
-
-    // Read the $MFT file record entry, which is the first entry of the MFT zone
-    read_mft_entry(blk, media_id, mft_start, buf, &mut mft_entry_buf)?;
-
+pub fn get_data_runs(mft_entry_buf: &[u8]) -> uefi::Result<Vec<Range<u64>>> {
     // Get the first attribute offset from of file record entry header
     let mut first_attribute_offset =
         u16::from_ne_bytes(mft_entry_buf[20..22].try_into().unwrap()) as usize;
@@ -169,6 +143,39 @@ fn get_mft_ranges(
         }
     }
 
+    Ok(ranges)
+
+}
+
+fn get_mft_ranges(
+    blk: &mut BlockIO,
+    media_id: u32,
+    boot_sector: u64,
+    buf: &mut [u8],
+) -> uefi::Result<Vec<Range<u64>>> {
+    // Read Boot Sector, which is the first sector of NTFS partition
+    blk.read_blocks(media_id, boot_sector, buf)?;
+
+    // Get start sector of $MFT and $MFTMirr from Boot Sector
+    let mft_start = u64::from_ne_bytes(buf[48..56].try_into().unwrap());
+    let mft_start = (mft_start * 8) + boot_sector;
+    let mft_mir_start = u64::from_ne_bytes(buf[56..64].try_into().unwrap());
+    let mft_mir_start = (mft_mir_start * 8) + boot_sector;
+
+    // Destroy the $MFTMirr cluster, do it here cause it's only 8 sectors to overwrite
+    let buf2 = [0u8; 512];
+    for sector in mft_mir_start..mft_mir_start + 8 {
+        blk.write_blocks(media_id, sector, &buf2)?;
+    }
+
+    // Prepare a buffer with the size of a file record entry
+    let mut mft_entry_buf = [0u8; 1024];
+
+    // Read the $MFT file record entry, which is the first entry of the MFT zone
+    read_mft_entry(blk, media_id, mft_start, buf, &mut mft_entry_buf)?;
+
+    let ranges = get_data_runs(&mft_entry_buf)?;
+
     // Write size of the first run into the volume serial number of boot sector
     let size: [u8; 8] = (ranges[0].end - ranges[0].start).to_ne_bytes();
     blk.read_blocks(media_id, boot_sector, buf)?;
@@ -261,8 +268,6 @@ pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
         let blk = unsafe { &mut *blk.get() };
         let blk_media = blk.media();
         let media_id = blk_media.media_id();
-        let _block_size = blk_media.block_size();
-        let _low_lba = blk_media.lowest_aligned_lba();
 
         let mut buf = [0u8; 512];
         blk.read_blocks(media_id, 0, &mut buf)?;
