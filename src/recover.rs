@@ -76,6 +76,7 @@ pub fn recover(st: &mut SystemTable<Boot>, key_bytes: &[u8]) -> uefi::Result {
         return Ok(());
     }
 
+    st.stdout().enable_cursor(false)?;
     st.stdout().write_str("\nRight key !").unwrap();
     st.stdout().write_str("\nStart decrypting...").unwrap();
 
