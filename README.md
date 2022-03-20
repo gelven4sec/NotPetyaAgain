@@ -1,4 +1,4 @@
-# notpetyaagain_boot
+# NotPetyaAgain
 "Proof of Concept" of a UEFI Petya ransomware 
 
 This project is a module of a school project: Study of the APT group Sandworm (a russian hacker group). I started as reproduction of the NotPetya malware written by Sandworm, but when I realised that the sample I was working with didn't worked on UEFI systems, so I came up with the idea to develop a "modern" version of Petya/NotPetya.
