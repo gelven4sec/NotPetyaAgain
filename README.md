@@ -15,8 +15,7 @@ So in my case I'm overwriting the Windows Boot Manager with my EFI image.
 
 ### Partition destruction
 
-My malware targets Windows OS, to do so I'm attack every NTFS partition that the UEFI firmware detects.
-I then parse the MFT zone of each and encrypt every fragment of it.
+My malware targets Windows OS, to do so I select every NTFS partition that the UEFI firmware detects, then parse the MFT zone of each, and encrypt every fragment of it.
 
 ### Ecryption technique
 
