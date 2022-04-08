@@ -7,11 +7,9 @@ The actual version of the program is more similare to Petya because I implemente
 ## How does it work
 
 ### Boot
-*This repository does only contain the UEFI application, not the loader. (actually the `scripts` folder contain a minimalist loader in python)*
+*This repository does only contain the UEFI application, not the loader. (actually the `scripts` folder contain a minimalist loader in python that I used for testing)*
 
-NotPetya Again, when compiled gives you EFI image from which 86_64 computer's UEFI firmware can boot from. Only 86_64 because the code does only support this architecture, like `rdrand` intel instruction for entropy source.
-
-So in my case I'm overwriting the Windows Boot Manager with my EFI image.
+NotPetya Again, when compiled gives you an EFI image from which 86_64 computer's UEFI firmware can boot from. Only 86_64 because the code does only support this architecture. (For entropy source, I use the `rdrand` intel instruction, which is only available on x86/x86_64).
 
 ### Partition destruction
 
@@ -20,8 +18,20 @@ My malware targets Windows OS, to do so I select every NTFS partition that the U
 ### Ecryption technique
 
 Encryption is basicly with an 256 bit AES key. But to generate the key, I use the Diffie-Hellman key agreement protocol (ECDH).
-Attackers public key is hardcoded in the malware, so when the victim generate a secret, it generate a the key with it. And for recovery, the newly generated secret public key is displayed in the ransom note, so the attackers just have to generate the key from it and give it to the victim.
+Attackers public key is hardcoded in the malware, so when the victim generate a secret, it generate the encryption key with it. And for recovery, the newly generated secret's public key is displayed in the ransom note, so the attackers just have to generate the key from it and give it to the victim.
 
-## Warranty
+### Protection
+
+To prevent booting on a malicious UEFI application, you simply have to activate Secure Boot, which will check for image signature.
+This feature is not activated by default relying on the UEFI specification, so it explains why you can still find some computer without Secure Boot.
+
+Nowadays, if a manufacturer wants to sell a computer with the Windows label on it, he MUST activate Secure Boot by default in the settings. But, if your're assembling your computer yourself, the motherboard you're buying DOESN'T have Secure Boot activated by default !
+
+Anyway if ,for whatever reason, you cannot activate Secure Boot, I'm working on a solution to protect the ESP partion from malicious UEFI application.
+
+And finally, if somehow you've managed to get encrypted by NotPetyaAgain, you can check the [NotPetyaAgain_Decrytor](https://github.com/sven-eliasen/NotPetyaAgain_Decryptor) project where you will find the private key to regenerate the key.
+
+
+## Disclaimer
 
 I do not keep responsibility of any bad usage of this project.
