@@ -112,7 +112,7 @@ pub fn get_data_runs(mft_entry_buf: &[u8]) -> uefi::Result<Vec<Range<u64>>> {
                     mft_entry_buf[data_run_offset + 1..data_run_offset + 4].to_vec();
                 data_run_size.push(0);
                 let data_run_size =
-                    (u16::from_ne_bytes(data_run_size.try_into().unwrap()) as u64) * 8;
+                    (u32::from_ne_bytes(data_run_size.try_into().unwrap()) as u64) * 8;
                 let mut data_run_first =
                     mft_entry_buf[data_run_offset + 4..data_run_offset + 7].to_vec();
                 data_run_first.push(0);
