@@ -263,8 +263,9 @@ pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
         let blk = unsafe { &mut *blk.get() };
         let blk_media = blk.media();
         let media_id = blk_media.media_id();
+        let block_size = blk_media.block_size();
 
-        let mut buf = [0u8; 512];
+        let mut buf = vec![0u8; block_size as usize];
         blk.read_blocks(media_id, 0, &mut buf)?;
 
         // If not a NTFS partition then get out
