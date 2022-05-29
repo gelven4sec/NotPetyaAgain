@@ -19,6 +19,7 @@ use crate::recover::recover;
 mod file;
 mod ntfs;
 mod recover;
+mod efi_rng;
 
 fn init_chdsk_screen(st: &mut SystemTable<Boot>) -> uefi::Result {
     st.stdout().clear()?;
