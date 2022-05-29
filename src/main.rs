@@ -16,10 +16,10 @@ use crate::file::read_file;
 use crate::ntfs::destroy;
 use crate::recover::recover;
 
+mod efi_rng;
 mod file;
 mod ntfs;
 mod recover;
-mod efi_rng;
 
 fn init_chdsk_screen(st: &mut SystemTable<Boot>) -> uefi::Result {
     st.stdout().clear()?;

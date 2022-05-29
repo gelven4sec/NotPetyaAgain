@@ -3,7 +3,7 @@ use rand_core::{CryptoRng, Error, RngCore};
 use uefi::proto::rng::Rng;
 use uefi::table::{Boot, SystemTable};
 
-pub struct EfiRng (&'static mut Rng);
+pub struct EfiRng(&'static mut Rng);
 
 impl EfiRng {
     pub fn new(st: &SystemTable<Boot>) -> uefi::Result<Self> {
@@ -34,8 +34,9 @@ impl RngCore for EfiRng {
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
         if self.0.get_rng(None, dest).is_err() {
-            Err(Error::from(NonZeroU32::new(1).unwrap() ))
+            Err(Error::from(NonZeroU32::new(1).unwrap()))
+        } else {
+            Ok(())
         }
-        else { Ok(()) }
     }
 }

@@ -1,8 +1,9 @@
-use aes::cipher::{generic_array::GenericArray, BlockEncrypt, NewBlockCipher};
-use aes::{Aes256, Block};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
+
+use aes::cipher::{generic_array::GenericArray, BlockEncrypt, NewBlockCipher};
+use aes::{Aes256, Block};
 use rand::rngs::OsRng;
 use uefi::prelude::SystemTable;
 use uefi::proto::media::block::BlockIO;
@@ -10,6 +11,7 @@ use uefi::table::Boot;
 use uefi::{Error, Status};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
+use crate::efi_rng::EfiRng;
 use crate::file::write_file;
 
 pub const OEM_ID: &[u8; 8] = b"NTFS    ";
@@ -243,8 +245,13 @@ pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
     hex::decode_to_slice(public_key_hex, &mut buf).unwrap();
     let public_key = PublicKey::from(buf);
 
-    let rng = OsRng;
-    let secret = EphemeralSecret::new(rng);
+    let efi_rng = EfiRng::new(st);
+
+    let secret = match efi_rng {
+        Ok(rng) => EphemeralSecret::new(rng),
+        Err(_) => EphemeralSecret::new(OsRng),
+    };
+
     let id = PublicKey::from(&secret);
     let key = secret.diffie_hellman(&public_key);
 
