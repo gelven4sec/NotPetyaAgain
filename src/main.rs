@@ -14,7 +14,7 @@ use uefi::proto::console::text::{Color, Key};
 use uefi::table::runtime::ResetType;
 use uefi::{Char16, Event};
 
-use crate::efi_vars::{read_var, write_var};
+use crate::efi_vars::read_var;
 use crate::ntfs::destroy;
 use crate::recover::recover;
 

