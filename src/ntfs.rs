@@ -2,13 +2,13 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
 
+use aes::cipher::{generic_array::GenericArray, BlockEncrypt, NewBlockCipher};
 use aes::{Aes256, Block};
-use aes::cipher::{BlockEncrypt, generic_array::GenericArray, NewBlockCipher};
 use rand::rngs::OsRng;
-use uefi::{Error, Status};
 use uefi::prelude::SystemTable;
 use uefi::proto::media::block::BlockIO;
 use uefi::table::Boot;
+use uefi::{Error, Status};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::efi_rng::EfiRng;
