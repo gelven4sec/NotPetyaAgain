@@ -70,7 +70,7 @@ fn take_input(
                     Some(&[]),
                 );
             } else {
-                recover(&mut st, buffer.as_bytes())?;
+                recover(&mut st, buffer.as_bytes()).unwrap();
                 stdout.write_str("\n> ").unwrap();
                 buffer.clear();
             }

