@@ -2,7 +2,6 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::alloc::Layout;
-use log::info;
 use uefi::exts::allocate_buffer;
 use uefi::prelude::{Boot, SystemTable};
 use uefi::proto::media::file::{Directory, File, FileAttribute, FileInfo, FileMode};

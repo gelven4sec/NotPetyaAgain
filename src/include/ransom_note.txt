@@ -10,7 +10,7 @@ Your computer have been encrypted !
 
 To recover your data, please read the following instructions :
 1. Save your ID from below
-2. Leave a star on 'sven-eliasen/notpetyaagain_boot' Github repository
+2. Leave a star on 'sven-eliasen/NotPetyaAgain' Github repository
 3. Visit : https://decryptor.octobyte.cloud and enter your ID
 4. Submit to get your decryption key and enter it in the shell below
 

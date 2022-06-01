@@ -4,13 +4,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Write;
 use core::ops::Range;
-use log::info;
 use uefi::proto::media::block::BlockIO;
 use uefi::table::runtime::ResetType;
 use uefi::table::{Boot, SystemTable};
 use uefi::Status;
 
-use crate::file::{read_file, write_file};
+use crate::efi::{read_file, write_file};
 use crate::ntfs::{get_data_runs, read_mft_entry, OEM_ID};
 use crate::read_var;
 
@@ -115,7 +114,6 @@ pub fn recover(st: &mut SystemTable<Boot>, key_bytes: &[u8]) -> uefi::Result {
         for range in ranges {
             decrypt_data_run(blk, media_id, key, range)?;
         }
-
     }
 
     st.stdout().write_str("\nFinished !").unwrap();
