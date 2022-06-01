@@ -10,31 +10,31 @@ use uefi::proto::media::fs::SimpleFileSystem;
 use uefi::{CStr16, Error, Status};
 
 fn get_last_dir(st: &SystemTable<Boot>, dirpath: Vec<&str>) -> uefi::Result<Directory, ()> {
-    // Get the file system protocol
-    info!("Getting fs protocol...");
-    let fs = st.boot_services().locate_protocol::<SimpleFileSystem>()?;
-    let fs = unsafe { &mut *fs.get() }; // Unsafe because we need to use the raw pointer
+    let handles = st.boot_services().find_handles::<SimpleFileSystem>()?;
 
-    // Open root directory of EFI System Partition
-    info!("Opening volume...");
-    let mut root = fs.open_volume()?;
+    for handle in handles {
+        let fs = st.boot_services().handle_protocol::<SimpleFileSystem>(handle)?;
+        let fs = unsafe { &mut *fs.get() };
 
-    for dirname in dirpath {
-        info!("Getting directory handle...");
-        let mut dirname_buf = vec![0u16; dirname.len() + 1];
-        let dirname = CStr16::from_str_with_buf(dirname, &mut dirname_buf).unwrap();
-        let dir_handle = match root.open(dirname, FileMode::Read, FileAttribute::empty()) {
-            Ok(file) => file,
-            _ => return Err(Error::from(Status::NOT_FOUND)), // Directory not found
-        };
-        info!("Getting directory...");
-        root = match dir_handle.into_type()? {
-            uefi::proto::media::file::FileType::Dir(d) => d,
-            _ => return Err(Error::from(Status::NOT_FOUND)), // Directory is not a regular file
-        };
+        let mut root = fs.open_volume()?;
+
+        let mut flag = true;
+
+        for dirname in &dirpath {
+            let mut dirname_buf = vec![0u16; dirname.len() + 1];
+            let dirname = CStr16::from_str_with_buf(dirname, &mut dirname_buf).unwrap();
+            let dir_handle = match root.open(dirname, FileMode::Read, FileAttribute::empty()) {
+                Ok(file) => file,
+                _ => {flag = false; continue}, // Directory not found
+            };
+            root = match dir_handle.into_type()? {
+                uefi::proto::media::file::FileType::Dir(d) => d,
+                _ => {flag = false; continue}, // Directory is not a regular file
+            };
+        }
+        if flag { return Ok(root)}
     }
-
-    Ok(root)
+    Err(Error::from(Status::NOT_FOUND))
 }
 
 pub fn read_file(st: &SystemTable<Boot>, filepath: &str) -> uefi::Result<Box<[u8]>> {
@@ -43,21 +43,18 @@ pub fn read_file(st: &SystemTable<Boot>, filepath: &str) -> uefi::Result<Box<[u8
 
     let filename = filepath_array.pop().unwrap();
 
-    info!("Getting root directory...");
     let mut root = match get_last_dir(st, filepath_array) {
         Ok(r) => r,
         Err(_) => return Err(Error::from(Status::NOT_FOUND)),
     };
 
     // Get file handle
-    info!("Getting file handle...");
     let mut filename_buf = vec![0u16; filename.len() + 1];
     let filename = CStr16::from_str_with_buf(filename, &mut filename_buf).unwrap();
     let text_file_handle = match root.open(filename, FileMode::Read, FileAttribute::empty()) {
         Ok(file) => file,
         _ => return Err(Error::from(Status::NOT_FOUND)), // File not found
     };
-    info!("Getting regular file...");
     let mut text_file = match text_file_handle.into_type()? {
         uefi::proto::media::file::FileType::Regular(f) => f,
         _ => return Err(Error::from(Status::NOT_FOUND)), // File is not a regular file
