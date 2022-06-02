@@ -12,7 +12,9 @@ fn get_last_dir(st: &SystemTable<Boot>, dirpath: Vec<&str>) -> uefi::Result<Dire
     let handles = st.boot_services().find_handles::<SimpleFileSystem>()?;
 
     for handle in handles {
-        let fs = st.boot_services().handle_protocol::<SimpleFileSystem>(handle)?;
+        let fs = st
+            .boot_services()
+            .handle_protocol::<SimpleFileSystem>(handle)?;
         let fs = unsafe { &mut *fs.get() };
 
         let mut root = fs.open_volume()?;
@@ -24,14 +26,22 @@ fn get_last_dir(st: &SystemTable<Boot>, dirpath: Vec<&str>) -> uefi::Result<Dire
             let dirname = CStr16::from_str_with_buf(dirname, &mut dirname_buf).unwrap();
             let dir_handle = match root.open(dirname, FileMode::Read, FileAttribute::empty()) {
                 Ok(file) => file,
-                _ => {flag = false; continue}, // Directory not found
+                _ => {
+                    flag = false;
+                    continue;
+                } // Directory not found
             };
             root = match dir_handle.into_type()? {
                 uefi::proto::media::file::FileType::Dir(d) => d,
-                _ => {flag = false; continue}, // Directory is not a regular file
+                _ => {
+                    flag = false;
+                    continue;
+                } // Directory is not a regular file
             };
         }
-        if flag { return Ok(root)}
+        if flag {
+            return Ok(root);
+        }
     }
     Err(Error::from(Status::NOT_FOUND))
 }

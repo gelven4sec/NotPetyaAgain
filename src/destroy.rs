@@ -2,17 +2,17 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
 
+use aes::cipher::{generic_array::GenericArray, BlockEncrypt, NewBlockCipher};
 use aes::{Aes256, Block};
-use aes::cipher::{BlockEncrypt, generic_array::GenericArray, NewBlockCipher};
 use rand::rngs::OsRng;
 use uefi::prelude::SystemTable;
 use uefi::proto::media::block::BlockIO;
 use uefi::table::Boot;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
-use crate::efi::EfiRng;
 use crate::efi::write_var;
-use crate::ntfs::{get_data_runs, OEM_ID, read_mft_entry};
+use crate::efi::EfiRng;
+use crate::ntfs::{get_data_runs, read_mft_entry, OEM_ID};
 
 fn get_mft_ranges(
     blk: &mut BlockIO,

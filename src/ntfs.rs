@@ -1,8 +1,8 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
-use uefi::{Error, Status};
 use uefi::proto::media::block::BlockIO;
+use uefi::{Error, Status};
 
 pub const OEM_ID: &[u8; 8] = b"NTFS    ";
 

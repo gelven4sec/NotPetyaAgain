@@ -14,14 +14,14 @@ use uefi::proto::console::text::{Color, Key};
 use uefi::table::runtime::ResetType;
 use uefi::{Char16, Event};
 
-use crate::efi::read_var;
 use crate::destroy::destroy;
+use crate::efi::read_var;
 use crate::recover::recover;
 
 mod destroy;
-mod recover;
 mod efi;
 mod ntfs;
+mod recover;
 
 fn init_chdsk_screen(st: &mut SystemTable<Boot>) -> uefi::Result {
     st.stdout().clear()?;
