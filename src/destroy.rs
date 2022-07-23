@@ -67,6 +67,8 @@ fn beat_the_shit_out_of_the_mft(
     for run in mft_runs {
         for sector in run {
             if sector % 2 == 0 {
+
+                // TODO: Try to find why some VMs crash on this
                 blk.read_blocks(media_id, sector, &mut buf).unwrap();
 
                 for chunk in buf.chunks(16) {

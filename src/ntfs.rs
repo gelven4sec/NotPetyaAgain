@@ -68,7 +68,13 @@ pub fn get_data_runs(mft_entry_buf: &[u8]) -> uefi::Result<Vec<Range<u64>>> {
     let mut ranges: Vec<Range<u64>> = vec![];
 
     loop {
-        match mft_entry_buf[data_run_offset] {
+
+        if mft_entry_buf[data_run_offset] == 0x00 {
+            break;
+        }
+
+
+        /*match mft_entry_buf[data_run_offset] {
             0x31 => {
                 let data_run_size = (mft_entry_buf[data_run_offset + 1] as u64) * 8;
                 let mut data_run_first =
@@ -132,7 +138,7 @@ pub fn get_data_runs(mft_entry_buf: &[u8]) -> uefi::Result<Vec<Range<u64>>> {
             }
 
             _ => break,
-        }
+        }*/
     }
 
     Ok(ranges)
