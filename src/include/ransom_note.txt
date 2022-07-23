@@ -1,17 +1,20 @@
-#################################
-#                               #
-# Not Petya Again               #
-#                               #
-# by APT ESGI                   #
-#                               #
-#################################
+###########################################################
+If you see that message, a malicious UEFI bootloader has
+been loaded.
+Before doing anything, try to boot on your default disk
+bootloader : /EFI/Boot/bootx64.efi
+If Windows doesn't boot normally then your data may have
+been compromised.
+The following message is fictional and only there for a
+role-play purpose, although it brings you to decryption
+for free.
+###########################################################
 
 Your computer have been encrypted !
 
 To recover your data, please read the following instructions :
-1. Save your ID from below
-2. Leave a star on 'sven-eliasen/NotPetyaAgain' Github repository
-3. Visit : https://decryptor.octobyte.cloud and enter your ID
-4. Submit to get your decryption key and enter it in the shell below
+1. Leave a star on 'sven-eliasen/NotPetyaAgain' Github repository
+2. Visit : https://decryptor.octobyte.cloud and enter your ID
+3. Submit to get your decryption key and enter it in the shell below
 
 Here's your personal ID :
