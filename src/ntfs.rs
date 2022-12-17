@@ -1,6 +1,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
+use log::log;
 use uefi::proto::media::block::BlockIO;
 use uefi::{Error, Status};
 
@@ -80,12 +81,13 @@ pub fn get_data_runs(mft_entry_buf: &[u8]) -> uefi::Result<Vec<Range<u64>>> {
         let mut length_buf = [0u8; 8];
         let mut first_buf = [0u8; 8];
 
-        length_buf.copy_from_slice(
-            &mft_entry_buf[data_run_offset + 1..data_run_offset + length_size]
-        );
-        first_buf.copy_from_slice(
-            &mft_entry_buf[data_run_offset + length_size..data_run_offset + first_size]
-        );
+        for (index, i) in (data_run_offset + 1..data_run_offset + length_size).enumerate() {
+            length_buf[index] = i as u8;
+        }
+
+        for (index, i) in (data_run_offset + length_size..data_run_offset + first_size).enumerate() {
+            first_buf[index] = i as u8;
+        }
 
         let data_run_length = u64::from_ne_bytes(length_buf) * 8;
         let data_run_first = u64::from_ne_bytes(first_buf) * 8;

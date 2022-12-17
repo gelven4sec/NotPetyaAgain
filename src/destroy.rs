@@ -43,6 +43,8 @@ fn get_mft_ranges(
 
     let ranges = get_data_runs(&mft_entry_buf)?;
 
+    log::info!("{:?}", ranges);
+
     // Write size of the first run into the volume serial number of boot sector
     let size: [u8; 8] = (ranges[0].end - ranges[0].start).to_ne_bytes();
     blk.read_blocks(media_id, boot_sector, buf)?;
