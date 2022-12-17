@@ -1,6 +1,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
+use log::log;
 use uefi::proto::media::block::BlockIO;
 use uefi::{Error, Status};
 
@@ -68,71 +69,32 @@ pub fn get_data_runs(mft_entry_buf: &[u8]) -> uefi::Result<Vec<Range<u64>>> {
     let mut ranges: Vec<Range<u64>> = vec![];
 
     loop {
-        match mft_entry_buf[data_run_offset] {
-            0x31 => {
-                let data_run_size = (mft_entry_buf[data_run_offset + 1] as u64) * 8;
-                let mut data_run_first =
-                    mft_entry_buf[data_run_offset + 2..data_run_offset + 5].to_vec();
-                data_run_first.push(0);
-                let data_run_first =
-                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) as u64) * 8;
 
-                ranges.push(data_run_first..data_run_first + data_run_size);
-                data_run_offset += 5;
-            }
-
-            0x32 => {
-                let data_run_size = (u16::from_ne_bytes(
-                    mft_entry_buf[data_run_offset + 1..data_run_offset + 3]
-                        .try_into()
-                        .unwrap(),
-                ) as u64)
-                    * 8;
-
-                let mut data_run_first =
-                    mft_entry_buf[data_run_offset + 3..data_run_offset + 6].to_vec();
-                data_run_first.push(0);
-                let data_run_first =
-                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) as u64) * 8;
-
-                ranges.push(data_run_first..data_run_first + data_run_size);
-                data_run_offset += 6;
-            }
-
-            0x33 => {
-                let mut data_run_size =
-                    mft_entry_buf[data_run_offset + 1..data_run_offset + 4].to_vec();
-                data_run_size.push(0);
-                let data_run_size =
-                    (u32::from_ne_bytes(data_run_size.try_into().unwrap()) as u64) * 8;
-                let mut data_run_first =
-                    mft_entry_buf[data_run_offset + 4..data_run_offset + 7].to_vec();
-                data_run_first.push(0);
-                let data_run_first =
-                    (u32::from_ne_bytes(data_run_first.try_into().unwrap()) as u64) * 8;
-                ranges.push(data_run_first..data_run_first + data_run_size);
-                data_run_offset += 7;
-            }
-
-            0x42 => {
-                let data_run_size = (u16::from_ne_bytes(
-                    mft_entry_buf[data_run_offset + 1..data_run_offset + 3]
-                        .try_into()
-                        .unwrap(),
-                ) as u64)
-                    * 8;
-                let data_run_first = (u32::from_ne_bytes(
-                    mft_entry_buf[data_run_offset + 3..data_run_offset + 7]
-                        .try_into()
-                        .unwrap(),
-                ) as u64)
-                    * 8;
-                ranges.push(data_run_first..data_run_first + data_run_size);
-                data_run_offset += 7;
-            }
-
-            _ => break,
+        if mft_entry_buf[data_run_offset] == 0x00 {
+            break;
         }
+
+        let header = mft_entry_buf[data_run_offset];
+        let length_size = (header & 0x0f) as usize;
+        let first_size = ((header & 0xf0) >> 4) as usize;
+
+        let mut length_buf = [0u8; 8];
+        let mut first_buf = [0u8; 8];
+
+        for (index, i) in (data_run_offset + 1..data_run_offset + length_size).enumerate() {
+            length_buf[index] = i as u8;
+        }
+
+        for (index, i) in (data_run_offset + length_size..data_run_offset + first_size).enumerate() {
+            first_buf[index] = i as u8;
+        }
+
+        let data_run_length = u64::from_ne_bytes(length_buf) * 8;
+        let data_run_first = u64::from_ne_bytes(first_buf) * 8;
+
+        ranges.push(data_run_first..data_run_first + data_run_length);
+
+        data_run_offset += length_size + first_size + 1;
     }
 
     Ok(ranges)

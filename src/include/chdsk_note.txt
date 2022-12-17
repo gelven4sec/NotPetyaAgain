@@ -1,5 +1,13 @@
+###########################################################
+This program is encrypting your NTFS partitions, if it's
+not intentional, please shut down your PC IMMEDIATELY.
+
+The following message is fictional and only there for a
+role-play purpose.
+###########################################################
+
 Microsoft Corporation @ Windows
 
-CHDSK is running on your computer for recovery...
+CHKDSK is running on your computer for recovery...
 
 This might take a while, DO NOT TURN OFF YOUR COMPUTER.

@@ -43,6 +43,8 @@ fn get_mft_ranges(
 
     let ranges = get_data_runs(&mft_entry_buf)?;
 
+    log::info!("{:?}", ranges);
+
     // Write size of the first run into the volume serial number of boot sector
     let size: [u8; 8] = (ranges[0].end - ranges[0].start).to_ne_bytes();
     blk.read_blocks(media_id, boot_sector, buf)?;
@@ -67,6 +69,8 @@ fn beat_the_shit_out_of_the_mft(
     for run in mft_runs {
         for sector in run {
             if sector % 2 == 0 {
+
+                // TODO: Try to find why some VMs crash on this
                 blk.read_blocks(media_id, sector, &mut buf).unwrap();
 
                 for chunk in buf.chunks(16) {
